@@ -1,0 +1,413 @@
+schema_version: 1.0.0
+project:
+  id: dff46e3c-2c00-4134-a8b5-8efe81fd4d19
+  name:
+    value: 智能专注指环
+    source: user_provided
+    confidence: 1.0
+    verification_status: SPEC_VERIFIED
+    notes: ''
+  description:
+    value: 通过旋转指环采集速度、方向变化、停顿与时长，经 USB 串口发送给电脑；Python 保存数据并用基础模型识别稳定专注状态，设备据此调整电机阻尼。
+    source: user_provided
+    confidence: 1.0
+    verification_status: SPEC_VERIFIED
+    notes: ''
+  product_goal:
+    value: 验证“智能专注指环”的核心交互与工程可行性
+    source: agent_recommendation
+    confidence: 0.76
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  prototype_level:
+    value: 功能原型
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  status: DRAFT
+  created_at: '2026-07-27T03:24:47.449863Z'
+  updated_at: '2026-07-27T03:24:47.449983Z'
+user:
+  target_user:
+    value: 希望通过触觉交互进入专注状态的用户
+    source: user_provided
+    confidence: 1.0
+    verification_status: SPEC_VERIFIED
+    notes: ''
+  experience_level:
+    value: 编程经验较少
+    source: user_provided
+    confidence: 1.0
+    verification_status: SPEC_VERIFIED
+    notes: ''
+  preferred_language:
+    value: zh-CN
+    source: template_default
+    confidence: 1.0
+    verification_status: SPEC_VERIFIED
+    notes: ''
+scenario:
+  usage_environment:
+    value: 室内桌面，有人值守
+    source: user_provided
+    confidence: 1.0
+    verification_status: SPEC_VERIFIED
+    notes: ''
+  usage_process:
+    value: []
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  frequency:
+    value: 待确认
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  environmental_constraints:
+    value: []
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+interaction:
+  user_actions:
+    value:
+    - 旋转指环
+    - 暂停旋转
+    - 开始或结束会话
+    source: user_provided
+    confidence: 1.0
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  system_inputs:
+    value:
+    - 旋转速度
+    - 方向变化
+    - 停顿时间
+    - 使用时长
+    source: user_provided
+    confidence: 1.0
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  system_outputs:
+    value:
+    - 阻尼等级
+    - 状态与错误日志
+    - 电脑端状态
+    source: user_provided
+    confidence: 1.0
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  feedback_methods:
+    value: []
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  abnormal_conditions:
+    value:
+    - 传感器断开
+    - 通信超时
+    - 执行器卡滞
+    source: template_default
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+system:
+  functional_modules:
+    value:
+    - 感知输入
+    - 状态处理
+    - 反馈输出
+    - 通信与日志
+    source: agent_recommendation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  data_flow:
+    value:
+    - 传感器 → ESP32 → USB 串口 → Python / Web
+    source: agent_recommendation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  control_flow:
+    value:
+    - 初始化 → 自检 → 待机 → 交互 → 故障安全
+    source: template_default
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  states:
+    value:
+    - BOOT
+    - SELF_TEST
+    - IDLE
+    - ACTIVE
+    - ERROR
+    source: template_default
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  safety_states:
+    value:
+    - SAFE_STOP
+    - POWER_LIMIT
+    source: template_default
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+hardware:
+  preferred_controller:
+    value: ESP32-S3
+    source: agent_recommendation
+    confidence: 0.72
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  controllers:
+  - category: controller
+    model:
+      value: ESP32-S3 开发板
+      source: agent_recommendation
+      confidence: 0.72
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    operating_voltage:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: 具体开发板供电范围待查数据手册
+    logic_voltage:
+      value: 3.3
+      source: component_catalog
+      confidence: 0.7
+      verification_status: NEEDS_CONFIRMATION
+      notes: 示例目录值，需核对具体开发板
+    max_current_ma:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    interface:
+      value: USB serial / GPIO
+      source: agent_recommendation
+      confidence: 0.8
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    pins: {}
+    i2c_address: null
+    notes: ''
+  sensors:
+  - category: sensor
+    model:
+      value: 增量式旋转编码器（型号待确认）
+      source: agent_recommendation
+      confidence: 0.8
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    operating_voltage:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    logic_voltage:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    max_current_ma:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    interface:
+      value: 数字脉冲 A/B 相
+      source: agent_recommendation
+      confidence: 0.78
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    pins: {}
+    i2c_address: null
+    notes: ''
+  actuators:
+  - category: actuator
+    model:
+      value: 阻尼执行器／电机（方案待实验）
+      source: agent_recommendation
+      confidence: 0.6
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    operating_voltage:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    logic_voltage:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    max_current_ma:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    interface:
+      value: 由匹配驱动器控制
+      source: agent_recommendation
+      confidence: 0.7
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    pins: {}
+    i2c_address: null
+    notes: 禁止由开发板 GPIO 直接驱动
+  motor_drivers: []
+  communication:
+    transport:
+      value: USB serial
+      source: user_provided
+      confidence: 1.0
+      verification_status: SPEC_VERIFIED
+      notes: ''
+    baud_rate:
+      value: 115200
+      source: template_default
+      confidence: 1.0
+      verification_status: SPEC_VERIFIED
+      notes: ''
+    protocol_version: 1.0.0
+  power_supply:
+    voltage:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    rated_current_ma:
+      value: null
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+    source_type:
+      value: 待确认
+      source: pending_confirmation
+      confidence: 0.5
+      verification_status: NEEDS_CONFIRMATION
+      notes: ''
+  existing_components:
+    value: []
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+software:
+  firmware_platform:
+    value: PlatformIO / Arduino
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  computer_language:
+    value:
+    - Python
+    - TypeScript
+    - C++
+    source: template_default
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  data_collection_required:
+    value: true
+    source: agent_recommendation
+    confidence: 0.7
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  machine_learning_required:
+    value: true
+    source: user_provided
+    confidence: 1.0
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  control_interface_required:
+    value: true
+    source: user_provided
+    confidence: 0.8
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+constraints:
+  budget_cny:
+    value: 1500.0
+    source: user_provided
+    confidence: 1.0
+    verification_status: SPEC_VERIFIED
+    notes: ''
+  size_constraints:
+    value: 待确认
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  power_constraints:
+    value: 待确认
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  avoid_custom_pcb:
+    value: true
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  preferred_components:
+    value: []
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+  forbidden_components:
+    value: []
+    source: pending_confirmation
+    confidence: 0.5
+    verification_status: NEEDS_CONFIRMATION
+    notes: ''
+assumptions:
+- value: 第一版采用低压、桌面、有人值守的功能原型
+  source: agent_recommendation
+  confidence: 0.65
+  verification_status: NEEDS_CONFIRMATION
+  notes: ''
+open_questions:
+- value: 阻尼范围、响应速度和允许噪声是多少？
+  source: pending_confirmation
+  confidence: 0.5
+  verification_status: NEEDS_CONFIRMATION
+  notes: ''
+- value: 旋转编码器的机械接口、分辨率和工作电压是多少？
+  source: pending_confirmation
+  confidence: 0.5
+  verification_status: NEEDS_CONFIRMATION
+  notes: ''
+- value: 电机额定与启动电流是多少，是否需要独立电源？
+  source: pending_confirmation
+  confidence: 0.5
+  verification_status: NEEDS_CONFIRMATION
+  notes: ''
+verification:
+  requirement_status: DRAFT
+  hardware_status: DRAFT
+  firmware_status: DRAFT
+  software_status: DRAFT
+  physical_test_status: HARDWARE_PENDING

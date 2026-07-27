@@ -1,0 +1,34 @@
+[
+  {
+    "category": "controller",
+    "manufacturer": "Espressif Systems",
+    "model": "ESP32-S3 SoC family",
+    "description": "仅用于演示目录结构；具体开发板的引脚、供电和 USB 实现各不相同。",
+    "operating_voltage": "待按具体开发板数据手册确认",
+    "logic_voltage": "3.3V（需要按具体开发板正式数据手册确认）",
+    "current": "待确认",
+    "interfaces": ["GPIO", "UART", "I2C", "SPI", "USB capability varies by board"],
+    "pins": {},
+    "i2c_address": null,
+    "key_parameters": {},
+    "datasheet_url": null,
+    "verification_status": "NEEDS_CONFIRMATION",
+    "notes": "示例数据，需要查看正式数据手册后确认"
+  },
+  {
+    "category": "sensor",
+    "manufacturer": "待确认",
+    "model": "Incremental rotary encoder example",
+    "description": "用于表示 A/B 相旋转输入的数据结构，不代表具体可购买型号。",
+    "operating_voltage": "待确认",
+    "logic_voltage": "待确认",
+    "current": "待确认",
+    "interfaces": ["Digital quadrature"],
+    "pins": {},
+    "i2c_address": null,
+    "key_parameters": {"pulses_per_revolution": "待确认"},
+    "datasheet_url": null,
+    "verification_status": "NEEDS_CONFIRMATION",
+    "notes": "示例数据，需要查看正式数据手册后确认"
+  }
+]

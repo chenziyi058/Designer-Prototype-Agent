@@ -1,0 +1,2 @@
+signal,controller_pin,device_pin,direction,voltage,status
+USB Serial,USB,USB,bidirectional,待确认,NEEDS_CONFIRMATION

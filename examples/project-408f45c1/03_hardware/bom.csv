@@ -1,0 +1,7 @@
+﻿id,category,component_name,manufacturer,model,quantity,function,key_specifications,operating_voltage,current_requirement,interface_type,selection_reason,estimated_unit_price_cny,estimated_total_price_cny,alternative_models,datasheet_url,source,verification_status,notes
+BOM-001,主控,ESP32-S3,待确认,待确认,1,数据采集、状态机与串口通信,{},待确认,待确认,待确认,满足 MVP 的 USB 串口与实时 IO 需求,,,[],,pending_confirmation,NEEDS_CONFIRMATION,示例选型，需要查看具体开发板正式数据手册后确认
+BOM-002,电源,低压原型电源,待确认,待确认,1,为主控及负载供电,{},待确认,待确认,待确认,电源规格需在所有负载参数确认后计算,,,[],,pending_confirmation,NEEDS_CONFIRMATION,额定电压、电流及启动余量待确认
+BOM-003,连接,USB 数据线与连接器,待确认,待确认,1,供电、调试与串口通信,{},待确认,待确认,待确认,MVP 优先使用 USB 串口,,,[],,pending_confirmation,NEEDS_CONFIRMATION,
+BOM-004,保护,保险／急停保护模块,待确认,待确认,1,机械或大电流异常时人工断电,{},待确认,待确认,待确认,含运动执行器的原型应保留硬件级停机措施,,,[],,pending_confirmation,NEEDS_CONFIRMATION,
+BOM-005,sensor,增量式旋转编码器（型号待确认）,待确认,待确认,1,由 ProjectSpec 定义,{},待确认,待确认,数字脉冲 A/B 相,来自当前 ProjectSpec 的工程方案,,,[],,pending_confirmation,NEEDS_CONFIRMATION,规格和价格需要查看正式数据手册后确认
+BOM-006,actuator,阻尼执行器／电机（方案待实验）,待确认,待确认,1,由 ProjectSpec 定义,{},待确认,待确认,由匹配驱动器控制,来自当前 ProjectSpec 的工程方案,,,[],,pending_confirmation,NEEDS_CONFIRMATION,禁止由开发板 GPIO 直接驱动

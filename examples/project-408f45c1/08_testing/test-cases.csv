@@ -1,0 +1,5 @@
+id,category,steps,expected_result
+T-001,首次上电,断开执行器并限流上电,主控无异常发热
+T-002,串口协议,发送 ping 与未知命令,返回响应与 UNKNOWN_COMMAND
+T-003,安全状态,模拟通信超时,进入 SAFE_STOP
+T-004,连续运行,连续记录 2 小时,无丢包、内存增长或过热

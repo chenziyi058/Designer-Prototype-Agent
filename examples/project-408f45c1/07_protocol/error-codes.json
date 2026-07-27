@@ -1,0 +1,14 @@
+{
+  "INVALID_JSON": {
+    "zh-CN": "INVALID JSON"
+  },
+  "UNKNOWN_COMMAND": {
+    "zh-CN": "UNKNOWN COMMAND"
+  },
+  "INVALID_PAYLOAD": {
+    "zh-CN": "INVALID PAYLOAD"
+  },
+  "INTERNAL_ERROR": {
+    "zh-CN": "INTERNAL ERROR"
+  }
+}

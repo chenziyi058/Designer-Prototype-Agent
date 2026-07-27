@@ -1,0 +1,578 @@
+{
+  "$defs": {
+    "CommunicationSpec": {
+      "properties": {
+        "transport": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "baud_rate": {
+          "$ref": "#/$defs/TracedValue_int_"
+        },
+        "protocol_version": {
+          "default": "1.0.0",
+          "title": "Protocol Version",
+          "type": "string"
+        }
+      },
+      "title": "CommunicationSpec",
+      "type": "object"
+    },
+    "ComponentSelection": {
+      "properties": {
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "model": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "operating_voltage": {
+          "$ref": "#/$defs/TracedValue_Union_float__NoneType__"
+        },
+        "logic_voltage": {
+          "$ref": "#/$defs/TracedValue_Union_float__NoneType__"
+        },
+        "max_current_ma": {
+          "$ref": "#/$defs/TracedValue_Union_float__NoneType__"
+        },
+        "interface": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "pins": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Pins",
+          "type": "object"
+        },
+        "i2c_address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "I2C Address"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "model"
+      ],
+      "title": "ComponentSelection",
+      "type": "object"
+    },
+    "ConstraintSpec": {
+      "properties": {
+        "budget_cny": {
+          "$ref": "#/$defs/TracedValue_Union_float__NoneType__"
+        },
+        "size_constraints": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "power_constraints": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "avoid_custom_pcb": {
+          "$ref": "#/$defs/TracedValue_bool_"
+        },
+        "preferred_components": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "forbidden_components": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        }
+      },
+      "title": "ConstraintSpec",
+      "type": "object"
+    },
+    "HardwareSpec": {
+      "properties": {
+        "preferred_controller": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "controllers": {
+          "items": {
+            "$ref": "#/$defs/ComponentSelection"
+          },
+          "title": "Controllers",
+          "type": "array"
+        },
+        "sensors": {
+          "items": {
+            "$ref": "#/$defs/ComponentSelection"
+          },
+          "title": "Sensors",
+          "type": "array"
+        },
+        "actuators": {
+          "items": {
+            "$ref": "#/$defs/ComponentSelection"
+          },
+          "title": "Actuators",
+          "type": "array"
+        },
+        "motor_drivers": {
+          "items": {
+            "$ref": "#/$defs/ComponentSelection"
+          },
+          "title": "Motor Drivers",
+          "type": "array"
+        },
+        "communication": {
+          "$ref": "#/$defs/CommunicationSpec"
+        },
+        "power_supply": {
+          "$ref": "#/$defs/PowerSupplySpec"
+        },
+        "existing_components": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        }
+      },
+      "title": "HardwareSpec",
+      "type": "object"
+    },
+    "InteractionSpec": {
+      "properties": {
+        "user_actions": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "system_inputs": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "system_outputs": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "feedback_methods": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "abnormal_conditions": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        }
+      },
+      "title": "InteractionSpec",
+      "type": "object"
+    },
+    "PowerSupplySpec": {
+      "properties": {
+        "voltage": {
+          "$ref": "#/$defs/TracedValue_Union_float__NoneType__"
+        },
+        "rated_current_ma": {
+          "$ref": "#/$defs/TracedValue_Union_float__NoneType__"
+        },
+        "source_type": {
+          "$ref": "#/$defs/TracedValue_str_"
+        }
+      },
+      "title": "PowerSupplySpec",
+      "type": "object"
+    },
+    "ProjectInfo": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "description": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "product_goal": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "prototype_level": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "DRAFT"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "product_goal"
+      ],
+      "title": "ProjectInfo",
+      "type": "object"
+    },
+    "ScenarioSpec": {
+      "properties": {
+        "usage_environment": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "usage_process": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "frequency": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "environmental_constraints": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        }
+      },
+      "title": "ScenarioSpec",
+      "type": "object"
+    },
+    "SoftwareSpec": {
+      "properties": {
+        "firmware_platform": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "computer_language": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "data_collection_required": {
+          "$ref": "#/$defs/TracedValue_bool_"
+        },
+        "machine_learning_required": {
+          "$ref": "#/$defs/TracedValue_bool_"
+        },
+        "control_interface_required": {
+          "$ref": "#/$defs/TracedValue_bool_"
+        }
+      },
+      "title": "SoftwareSpec",
+      "type": "object"
+    },
+    "Source": {
+      "enum": [
+        "user_provided",
+        "agent_recommendation",
+        "component_catalog",
+        "template_default",
+        "program_calculated",
+        "pending_confirmation"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "SystemSpec": {
+      "properties": {
+        "functional_modules": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "data_flow": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "control_flow": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "states": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        },
+        "safety_states": {
+          "$ref": "#/$defs/TracedValue_list_str__"
+        }
+      },
+      "title": "SystemSpec",
+      "type": "object"
+    },
+    "TracedValue_Union_float__NoneType__": {
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "default": "pending_confirmation"
+        },
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "verification_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "NEEDS_CONFIRMATION"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TracedValue[Union[float, NoneType]]",
+      "type": "object"
+    },
+    "TracedValue_bool_": {
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "default": "pending_confirmation"
+        },
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "verification_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "NEEDS_CONFIRMATION"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TracedValue[bool]",
+      "type": "object"
+    },
+    "TracedValue_int_": {
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "default": "pending_confirmation"
+        },
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "verification_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "NEEDS_CONFIRMATION"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TracedValue[int]",
+      "type": "object"
+    },
+    "TracedValue_list_str__": {
+      "properties": {
+        "value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Value",
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "default": "pending_confirmation"
+        },
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "verification_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "NEEDS_CONFIRMATION"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TracedValue[list[str]]",
+      "type": "object"
+    },
+    "TracedValue_str_": {
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "default": "pending_confirmation"
+        },
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "verification_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "NEEDS_CONFIRMATION"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TracedValue[str]",
+      "type": "object"
+    },
+    "UserInfo": {
+      "properties": {
+        "target_user": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "experience_level": {
+          "$ref": "#/$defs/TracedValue_str_"
+        },
+        "preferred_language": {
+          "$ref": "#/$defs/TracedValue_str_"
+        }
+      },
+      "title": "UserInfo",
+      "type": "object"
+    },
+    "VerificationStatus": {
+      "enum": [
+        "DRAFT",
+        "GENERATED",
+        "NEEDS_CONFIRMATION",
+        "SPEC_VERIFIED",
+        "CODE_VALIDATED",
+        "COMPILE_PASSED",
+        "HARDWARE_PENDING",
+        "USER_CONFIRMED",
+        "FAILED"
+      ],
+      "title": "VerificationStatus",
+      "type": "string"
+    },
+    "VerificationSummary": {
+      "properties": {
+        "requirement_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "DRAFT"
+        },
+        "hardware_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "DRAFT"
+        },
+        "firmware_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "DRAFT"
+        },
+        "software_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "DRAFT"
+        },
+        "physical_test_status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "HARDWARE_PENDING"
+        }
+      },
+      "title": "VerificationSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "project": {
+      "$ref": "#/$defs/ProjectInfo"
+    },
+    "user": {
+      "$ref": "#/$defs/UserInfo"
+    },
+    "scenario": {
+      "$ref": "#/$defs/ScenarioSpec"
+    },
+    "interaction": {
+      "$ref": "#/$defs/InteractionSpec"
+    },
+    "system": {
+      "$ref": "#/$defs/SystemSpec"
+    },
+    "hardware": {
+      "$ref": "#/$defs/HardwareSpec"
+    },
+    "software": {
+      "$ref": "#/$defs/SoftwareSpec"
+    },
+    "constraints": {
+      "$ref": "#/$defs/ConstraintSpec"
+    },
+    "assumptions": {
+      "items": {
+        "$ref": "#/$defs/TracedValue_str_"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "open_questions": {
+      "items": {
+        "$ref": "#/$defs/TracedValue_str_"
+      },
+      "title": "Open Questions",
+      "type": "array"
+    },
+    "verification": {
+      "$ref": "#/$defs/VerificationSummary"
+    }
+  },
+  "required": [
+    "project"
+  ],
+  "title": "ProjectSpec",
+  "type": "object"
+}

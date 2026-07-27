@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "protocol_version": "1.0.0",
+  "transport": "usb_serial",
+  "framing": "newline_delimited_json",
+  "baud_rate": 115200,
+  "max_message_bytes": 512,
+  "required": [
+    "type",
+    "request_id"
+  ],
+  "commands": [
+    "ping",
+    "get_status",
+    "set_output"
+  ],
+  "error_codes": [
+    "INVALID_JSON",
+    "UNKNOWN_COMMAND",
+    "INVALID_PAYLOAD",
+    "INTERNAL_ERROR"
+  ]
+}

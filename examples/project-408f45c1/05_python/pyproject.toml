@@ -1,0 +1,7 @@
+[project]
+name="prototype-client"
+version="0.1.0"
+requires-python=">=3.11"
+dependencies=["pyserial>=3.5","pydantic>=2.10"]
+[tool.pytest.ini_options]
+pythonpath=["src"]
