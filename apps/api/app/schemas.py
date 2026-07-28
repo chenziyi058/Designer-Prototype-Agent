@@ -191,10 +191,66 @@ class ProjectCreate(BaseModel):
     usage_environment: str = "待确认"
     budget_cny: float | None = Field(default=None, gt=0)
     experience_level: str = "初学者"
+    preferred_controller: str = "由 Agent 推荐"
+    communication_preference: str = "USB 串口"
+    existing_components: list[str] = Field(default_factory=list)
+    size_constraints: str = "待确认"
+    power_constraints: str = "待确认"
+    prototype_level: str = "功能原型"
+    avoid_custom_pcb: bool = True
+    data_collection_required: bool = True
+    machine_learning_required: bool = False
+    control_interface_required: bool = True
 
 
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
+    apply_change: bool = True
+
+
+class RequirementChange(BaseModel):
+    """A deliberately bounded model-facing change set for ProjectSpec updates."""
+
+    reply: str
+    should_update_spec: bool = False
+    product_goal: str | None = None
+    target_user: str | None = None
+    usage_environment: str | None = None
+    budget_cny: float | None = Field(default=None, gt=0)
+    preferred_controller: str | None = None
+    data_collection_required: bool | None = None
+    machine_learning_required: bool | None = None
+    control_interface_required: bool | None = None
+    add_open_questions: list[str] = Field(default_factory=list)
+    resolved_open_questions: list[str] = Field(default_factory=list)
+    affected_modules: list[str] = Field(default_factory=list)
+    requires_confirmation: bool = True
+
+
+class RequirementExtraction(BaseModel):
+    """Small, model-facing schema merged into the canonical ProjectSpec by code."""
+
+    product_goal: str
+    target_user: str
+    usage_environment: str
+    usage_process: list[str] = Field(default_factory=list)
+    user_actions: list[str] = Field(default_factory=list)
+    system_inputs: list[str] = Field(default_factory=list)
+    system_outputs: list[str] = Field(default_factory=list)
+    feedback_methods: list[str] = Field(default_factory=list)
+    abnormal_conditions: list[str] = Field(default_factory=list)
+    functional_modules: list[str] = Field(default_factory=list)
+    data_flow: list[str] = Field(default_factory=list)
+    control_flow: list[str] = Field(default_factory=list)
+    states: list[str] = Field(default_factory=list)
+    safety_states: list[str] = Field(default_factory=list)
+    preferred_controller: str = "待确认"
+    data_collection_required: bool = False
+    machine_learning_required: bool = False
+    control_interface_required: bool = True
+    assumptions: list[str] = Field(default_factory=list)
+    must_confirm_questions: list[str] = Field(default_factory=list)
+    safety_flags: list[str] = Field(default_factory=list)
 
 
 class BOMItemSchema(BaseModel):

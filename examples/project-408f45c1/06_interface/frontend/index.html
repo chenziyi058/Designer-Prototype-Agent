@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>原型控制台</title><link rel="stylesheet" href="style.css"></head>
+<body><main><header><div><small>LOCAL PROTOTYPE CONSOLE</small><h1>原型控制台</h1></div><span id="status">未连接硬件</span></header>
+<section><label>输出等级 <output id="value">0</output></label><input id="level" type="range" min="0" max="100" value="0">
+<div><button data-command="ping">连接测试</button><button data-command="get_status">读取状态</button><button id="apply">应用输出</button></div></section>
+<pre id="log">安全提示：首次上电前人工检查接线；本界面不会自动连接或操作硬件。</pre></main>
+<script src="app.js"></script></body></html>

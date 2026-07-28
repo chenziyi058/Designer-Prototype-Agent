@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "project": {
-    "id": "dff46e3c-2c00-4134-a8b5-8efe81fd4d19",
+    "id": "9b2ff8c7-cba0-49bf-8863-7833a715a5a4",
     "name": {
       "value": "智能专注指环",
       "source": "user_provided",
@@ -25,14 +25,14 @@
     },
     "prototype_level": {
       "value": "功能原型",
-      "source": "pending_confirmation",
-      "confidence": 0.5,
-      "verification_status": "NEEDS_CONFIRMATION",
+      "source": "user_provided",
+      "confidence": 1.0,
+      "verification_status": "SPEC_VERIFIED",
       "notes": ""
     },
     "status": "DRAFT",
-    "created_at": "2026-07-27T03:24:47.449863Z",
-    "updated_at": "2026-07-27T03:24:47.449983Z"
+    "created_at": "2026-07-28T08:53:57.254831Z",
+    "updated_at": "2026-07-28T08:53:57.255067Z"
   },
   "user": {
     "target_user": {
@@ -208,7 +208,7 @@
       {
         "category": "controller",
         "model": {
-          "value": "ESP32-S3 开发板",
+          "value": "ESP32-S3",
           "source": "agent_recommendation",
           "confidence": 0.72,
           "verification_status": "NEEDS_CONFIRMATION",
@@ -222,11 +222,11 @@
           "notes": "具体开发板供电范围待查数据手册"
         },
         "logic_voltage": {
-          "value": 3.3,
-          "source": "component_catalog",
-          "confidence": 0.7,
+          "value": null,
+          "source": "pending_confirmation",
+          "confidence": 0.5,
           "verification_status": "NEEDS_CONFIRMATION",
-          "notes": "示例目录值，需核对具体开发板"
+          "notes": "具体开发板逻辑电平待查正式数据手册"
         },
         "max_current_ma": {
           "value": null,
@@ -376,9 +376,9 @@
     },
     "existing_components": {
       "value": [],
-      "source": "pending_confirmation",
-      "confidence": 0.5,
-      "verification_status": "NEEDS_CONFIRMATION",
+      "source": "user_provided",
+      "confidence": 1.0,
+      "verification_status": "USER_CONFIRMED",
       "notes": ""
     }
   },
@@ -403,8 +403,8 @@
     },
     "data_collection_required": {
       "value": true,
-      "source": "agent_recommendation",
-      "confidence": 0.7,
+      "source": "user_provided",
+      "confidence": 1.0,
       "verification_status": "NEEDS_CONFIRMATION",
       "notes": ""
     },
@@ -418,7 +418,7 @@
     "control_interface_required": {
       "value": true,
       "source": "user_provided",
-      "confidence": 0.8,
+      "confidence": 1.0,
       "verification_status": "NEEDS_CONFIRMATION",
       "notes": ""
     }
@@ -433,23 +433,23 @@
     },
     "size_constraints": {
       "value": "待确认",
-      "source": "pending_confirmation",
-      "confidence": 0.5,
-      "verification_status": "NEEDS_CONFIRMATION",
+      "source": "user_provided",
+      "confidence": 1.0,
+      "verification_status": "SPEC_VERIFIED",
       "notes": ""
     },
     "power_constraints": {
       "value": "待确认",
-      "source": "pending_confirmation",
-      "confidence": 0.5,
-      "verification_status": "NEEDS_CONFIRMATION",
+      "source": "user_provided",
+      "confidence": 1.0,
+      "verification_status": "SPEC_VERIFIED",
       "notes": ""
     },
     "avoid_custom_pcb": {
       "value": true,
-      "source": "pending_confirmation",
-      "confidence": 0.5,
-      "verification_status": "NEEDS_CONFIRMATION",
+      "source": "user_provided",
+      "confidence": 1.0,
+      "verification_status": "USER_CONFIRMED",
       "notes": ""
     },
     "preferred_components": {

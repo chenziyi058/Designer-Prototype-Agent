@@ -16,6 +16,10 @@ class ProviderError(RuntimeError):
 
 
 class ModelProvider(ABC):
+    provider_name = "unknown"
+    last_model = ""
+    last_usage: dict[str, Any] = {}
+
     @abstractmethod
     async def generate_text(self, messages: list[dict[str, str]], **kwargs: Any) -> str: ...
 
@@ -31,8 +35,12 @@ class ModelProvider(ABC):
 
 
 class DeepSeekProvider(ModelProvider):
+    provider_name = "deepseek"
+
     def __init__(self, config: Settings = settings):
         self.config = config
+        self.last_model = ""
+        self.last_usage = {}
         if not config.deepseek_api_key:
             raise ProviderError("DEEPSEEK_API_KEY 未配置")
 
@@ -47,7 +55,10 @@ class DeepSeekProvider(ModelProvider):
                 ) as client:
                     response = await client.post("/chat/completions", json=payload)
                     response.raise_for_status()
-                    return response.json()
+                    result = response.json()
+                    self.last_model = str(result.get("model") or payload.get("model") or "")
+                    self.last_usage = dict(result.get("usage") or {})
+                    return result
             except (httpx.HTTPError, ValueError) as error:
                 last_error = error
                 if attempt < self.config.model_max_retries:
@@ -59,10 +70,16 @@ class DeepSeekProvider(ModelProvider):
         model = kwargs.pop("model", None) or self.config.model_for(role)
         if not model:
             raise ProviderError("未配置 DeepSeek 模型名称")
-        result = await self._request({
-            "model": model, "messages": messages,
-            "temperature": kwargs.pop("temperature", self.config.model_temperature), **kwargs,
-        })
+        thinking = kwargs.pop("thinking", role in {"reasoning", "coding"})
+        temperature = kwargs.pop("temperature", self.config.model_temperature)
+        payload: dict[str, Any] = {"model": model, "messages": messages, **kwargs}
+        if thinking:
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = self.config.deepseek_reasoning_effort
+        else:
+            payload["thinking"] = {"type": "disabled"}
+            payload["temperature"] = temperature
+        result = await self._request(payload)
         return str(result["choices"][0]["message"]["content"])
 
     async def generate_json(
@@ -73,7 +90,7 @@ class DeepSeekProvider(ModelProvider):
             + json.dumps(schema.model_json_schema(), ensure_ascii=False)
         )
         content = await self.generate_text(
-            [*messages, {"role": "system", "content": schema_instruction}],
+            [{"role": "system", "content": schema_instruction}, *messages],
             response_format={"type": "json_object"}, **kwargs,
         )
         try:
@@ -91,6 +108,12 @@ class DeepSeekProvider(ModelProvider):
 
 
 class MockProvider(ModelProvider):
+    provider_name = "mock"
+
+    def __init__(self) -> None:
+        self.last_model = "mock-deterministic"
+        self.last_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
     async def generate_text(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         del kwargs
         subject = messages[-1]["content"][:80] if messages else "当前项目"

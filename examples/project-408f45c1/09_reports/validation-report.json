@@ -1,6 +1,6 @@
 {
   "hardware": {
-    "generated_at": "2026-07-27T03:24:47.461499Z",
+    "generated_at": "2026-07-28T08:53:57.291567Z",
     "errors": [
       {
         "level": "error",
@@ -51,13 +51,5 @@
     "over_budget": false,
     "is_complete": false
   },
-  "compile": {
-    "status": "COMPILE_PASSED",
-    "environment": "esp32-s3-devkitc-1",
-    "platform": "espressif32@7.0.1",
-    "framework": "Arduino",
-    "ram_used_bytes": 18448,
-    "flash_used_bytes": 264377,
-    "verified_at": "2026-07-27"
-  }
+  "compile": "NOT_RUN"
 }

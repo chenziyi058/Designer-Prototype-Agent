@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 from .schemas import (
-    BOMItemSchema, BoolValue, ComponentSelection, ConstraintSpec, HardwareSpec,
+    BOMItemSchema, BoolValue, CommunicationSpec, ComponentSelection, ConstraintSpec, HardwareSpec,
     InteractionSpec, ListValue, NumberValue, ProjectCreate, ProjectInfo, ProjectSpec,
     ScenarioSpec, SoftwareSpec, Source, SystemSpec, TextValue, UserInfo, VerificationStatus,
 )
@@ -35,16 +35,21 @@ def traced(value: str, source: Source, confidence: float, verified: bool = False
 def create_initial_spec(data: ProjectCreate) -> ProjectSpec:
     user_value = lambda value: traced(value, Source.USER, 1, True)  # noqa: E731
     agent_value = lambda value, confidence=.78: traced(value, Source.AGENT, confidence)  # noqa: E731
+    preferred_controller = (
+        "ESP32-S3" if data.preferred_controller == "由 Agent 推荐"
+        else data.preferred_controller
+    )
     controller = ComponentSelection(
-        category="controller", model=agent_value("ESP32-S3 开发板", .72),
+        category="controller", model=agent_value(preferred_controller, .72),
         operating_voltage=NumberValue(value=None, notes="具体开发板供电范围待查数据手册"),
-        logic_voltage=NumberValue(value=3.3, source=Source.CATALOG, confidence=.7, notes="示例目录值，需核对具体开发板"),
+        logic_voltage=NumberValue(value=None, notes="具体开发板逻辑电平待查正式数据手册"),
         interface=agent_value("USB serial / GPIO", .8),
     )
     return ProjectSpec(
         project=ProjectInfo(
             name=user_value(data.name), description=user_value(data.description),
             product_goal=agent_value(f"验证“{data.name}”的核心交互与工程可行性", .76),
+            prototype_level=user_value(data.prototype_level),
         ),
         user=UserInfo(target_user=user_value(data.target_user), experience_level=user_value(data.experience_level)),
         scenario=ScenarioSpec(usage_environment=user_value(data.usage_environment)),
@@ -62,20 +67,37 @@ def create_initial_spec(data: ProjectCreate) -> ProjectSpec:
             safety_states=ListValue(value=["SAFE_STOP", "POWER_LIMIT"], source=Source.TEMPLATE),
         ),
         hardware=HardwareSpec(
-            preferred_controller=agent_value("ESP32-S3", .72),
+            preferred_controller=agent_value(preferred_controller, .72),
             controllers=[controller],
+            communication=CommunicationSpec(transport=user_value(data.communication_preference)),
+            existing_components=ListValue(
+                value=data.existing_components, source=Source.USER, confidence=1,
+                verification_status=VerificationStatus.USER_CONFIRMED,
+            ),
         ),
         software=SoftwareSpec(
-            data_collection_required=BoolValue(value=True, source=Source.AGENT, confidence=.7),
-            machine_learning_required=BoolValue(value=False, source=Source.PENDING, confidence=.5),
-            control_interface_required=BoolValue(value=True, source=Source.USER, confidence=.8),
+            data_collection_required=BoolValue(
+                value=data.data_collection_required, source=Source.USER, confidence=1
+            ),
+            machine_learning_required=BoolValue(
+                value=data.machine_learning_required, source=Source.USER, confidence=1
+            ),
+            control_interface_required=BoolValue(
+                value=data.control_interface_required, source=Source.USER, confidence=1
+            ),
         ),
         constraints=ConstraintSpec(
             budget_cny=NumberValue(
                 value=data.budget_cny, source=Source.USER if data.budget_cny else Source.PENDING,
                 confidence=1 if data.budget_cny else .5,
                 verification_status=VerificationStatus.SPEC_VERIFIED if data.budget_cny else VerificationStatus.NEEDS_CONFIRMATION,
-            )
+            ),
+            size_constraints=user_value(data.size_constraints),
+            power_constraints=user_value(data.power_constraints),
+            avoid_custom_pcb=BoolValue(
+                value=data.avoid_custom_pcb, source=Source.USER, confidence=1,
+                verification_status=VerificationStatus.USER_CONFIRMED,
+            ),
         ),
         assumptions=[agent_value("第一版采用低压、桌面、有人值守的功能原型", .65)],
         open_questions=[
@@ -223,20 +245,75 @@ def generate_workspace(spec: ProjectSpec, root: Path, original_description: str)
     save("07_protocol/protocol.md", "# USB 串口协议\n\n版本 1.0.0，115200 baud，UTF-8 换行分隔 JSON，最大 512 字节。\n\n请求必须包含 `type`、`request_id`、`name` 与 `payload`。超时 1000 ms，最多重试 2 次。\n")
 
     save("04_firmware/platformio.ini", """[env:esp32-s3-devkitc-1]\nplatform = espressif32\nboard = esp32-s3-devkitc-1\nframework = arduino\nmonitor_speed = 115200\nbuild_flags = -D PROTOCOL_VERSION=\\\"1.0.0\\\"\n""")
-    save("04_firmware/include/protocol.h", """#pragma once\nconstexpr unsigned long SERIAL_BAUD = 115200;\nconstexpr size_t MAX_MESSAGE_BYTES = 512;\nconstexpr const char* PROTOCOL_VERSION_TEXT = "1.0.0";\n""")
+    save("04_firmware/include/protocol.h", """#pragma once\nconstexpr unsigned long SERIAL_BAUD = 115200;\nconstexpr size_t MAX_MESSAGE_BYTES = 512;\nconstexpr const char* PROTOCOL_VERSION_TEXT = "1.0.0";\nconstexpr const char* PROTOCOL_COMMANDS = "ping,get_status,set_output";\nconstexpr const char* PROTOCOL_ERROR_CODES = "INVALID_JSON,UNKNOWN_COMMAND,INVALID_PAYLOAD,INTERNAL_ERROR";\n""")
     save("04_firmware/src/main.cpp", """#include <Arduino.h>\n#include "protocol.h"\n\nString line;\nvoid respond(const String& id, const String& status) {\n  Serial.printf("{\\\"type\\\":\\\"response\\\",\\\"request_id\\\":\\\"%s\\\",\\\"status\\\":\\\"%s\\\",\\\"protocol_version\\\":\\\"%s\\\"}\\n", id.c_str(), status.c_str(), PROTOCOL_VERSION_TEXT);\n}\nvoid setup() { Serial.begin(SERIAL_BAUD); Serial.setTimeout(1000); }\nvoid loop() {\n  while (Serial.available()) {\n    char c = static_cast<char>(Serial.read());\n    if (c == '\\n') { if (line.length() > 0) respond("unparsed", "received"); line = ""; }\n    else if (line.length() < MAX_MESSAGE_BYTES) line += c;\n    else { line = ""; Serial.println("{\\\"type\\\":\\\"error\\\",\\\"code\\\":\\\"MESSAGE_TOO_LONG\\\"}"); }\n  }\n}\n""")
     save("04_firmware/test/test_protocol.cpp", """#include <unity.h>\n#include "protocol.h"\nvoid test_limits() { TEST_ASSERT_EQUAL_UINT32(115200, SERIAL_BAUD); TEST_ASSERT_EQUAL_UINT32(512, MAX_MESSAGE_BYTES); }\nvoid setup(){ UNITY_BEGIN(); RUN_TEST(test_limits); UNITY_END(); }\nvoid loop(){}\n""")
     save("04_firmware/README.md", f"# ESP32 固件\n\n`pio run` 编译，`pio device monitor` 查看串口。\n\n{SAFETY}\n")
 
     save("05_python/pyproject.toml", """[project]\nname="prototype-client"\nversion="0.1.0"\nrequires-python=">=3.11"\ndependencies=["pyserial>=3.5","pydantic>=2.10"]\n[tool.pytest.ini_options]\npythonpath=["src"]\n""")
-    save("05_python/src/prototype/protocol.py", """from __future__ import annotations\nimport json\nfrom dataclasses import dataclass\n\nMAX_MESSAGE_BYTES = 512\n@dataclass(frozen=True)\nclass Message:\n    type: str\n    request_id: str\n    name: str | None = None\n    payload: dict | None = None\n    def encode(self) -> bytes:\n        data = (json.dumps(self.__dict__, ensure_ascii=False, separators=(",", ":")) + "\\n").encode()\n        if len(data) > MAX_MESSAGE_BYTES: raise ValueError("message exceeds protocol limit")\n        return data\n""")
+    save("05_python/src/prototype/protocol.py", """from __future__ import annotations\nimport json\nfrom dataclasses import dataclass\n\nPROTOCOL_VERSION = "1.0.0"\nBAUD_RATE = 115200\nMAX_MESSAGE_BYTES = 512\nCOMMANDS = ["ping", "get_status", "set_output"]\nERROR_CODES = ["INVALID_JSON", "UNKNOWN_COMMAND", "INVALID_PAYLOAD", "INTERNAL_ERROR"]\n\n@dataclass(frozen=True)\nclass Message:\n    type: str\n    request_id: str\n    name: str | None = None\n    payload: dict | None = None\n    def encode(self) -> bytes:\n        data = (json.dumps(self.__dict__, ensure_ascii=False, separators=(",", ":")) + "\\n").encode()\n        if len(data) > MAX_MESSAGE_BYTES: raise ValueError("message exceeds protocol limit")\n        return data\n""")
     save("05_python/data_collection/collect.py", """import argparse, json, time\nfrom pathlib import Path\nimport serial\n\ndef main() -> None:\n    parser=argparse.ArgumentParser(); parser.add_argument("--port", required=True); parser.add_argument("--output", default="data.jsonl"); args=parser.parse_args()\n    with serial.Serial(args.port, 115200, timeout=1) as port, Path(args.output).open("a", encoding="utf-8") as output:\n        while True:\n            line=port.readline()\n            if line:\n                record={"host_time":time.time(),"device":json.loads(line)}; output.write(json.dumps(record,ensure_ascii=False)+"\\n"); output.flush()\nif __name__=="__main__": main()\n""")
     save("05_python/training/train.py", """\"\"\"Baseline placeholder-free training entrypoint.\nProvide labeled JSONL before running; exits clearly when data is absent.\n\"\"\"\nfrom pathlib import Path\nimport json\n\ndef load(path: Path) -> list[dict]:\n    if not path.exists(): raise FileNotFoundError("需要先采集并标注数据")\n    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]\nif __name__=="__main__": print(f"loaded {len(load(Path('labeled-data.jsonl')))} labeled samples")\n""")
     save("05_python/inference/infer.py", """def classify(rotation_speed: float, direction_changes: int, pause_ratio: float) -> str:\n    \"\"\"Transparent baseline until a validated trained model replaces it.\"\"\"\n    if rotation_speed >= 0 and direction_changes <= 3 and pause_ratio < 0.4: return "stable_candidate"\n    return "not_stable"\n""")
     save("05_python/tests/test_protocol.py", """from prototype.protocol import Message\n\ndef test_message_is_newline_delimited():\n    assert Message("command","abc","ping",{}).encode().endswith(b"\\n")\n""")
     save("05_python/README.md", "# Python 原型工具\n\n安装 `pip install -e .`，运行采集器时必须显式提供串口名。\n")
-    save("06_interface/frontend/README.md", "# 项目控制界面\n\n通用工作台中的项目专属视图。控制命令必须经协议 Schema 校验。\n")
-    save("06_interface/backend/README.md", "# 控制接口\n\n本地有人值守模式，不提供无人值守真实硬件操作。\n")
+    save("06_interface/frontend/README.md", "# 项目控制界面\n\n运行 `python ../backend/server.py` 后打开 `http://localhost:8765`。界面只在本地有人值守模式发送经过白名单校验的原型命令。\n")
+    save("06_interface/frontend/index.html", """<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>原型控制台</title><link rel="stylesheet" href="style.css"></head>
+<body><main><header><div><small>LOCAL PROTOTYPE CONSOLE</small><h1>原型控制台</h1></div><span id="status">未连接硬件</span></header>
+<section><label>输出等级 <output id="value">0</output></label><input id="level" type="range" min="0" max="100" value="0">
+<div><button data-command="ping">连接测试</button><button data-command="get_status">读取状态</button><button id="apply">应用输出</button></div></section>
+<pre id="log">安全提示：首次上电前人工检查接线；本界面不会自动连接或操作硬件。</pre></main>
+<script src="app.js"></script></body></html>
+""")
+    save("06_interface/frontend/style.css", """*{box-sizing:border-box}body{margin:0;background:#f4f5f7;color:#202733;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}main{width:min(680px,calc(100% - 32px));margin:64px auto}header,section,pre{background:#fff;border:1px solid #e1e4e8;border-radius:12px;padding:22px}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}h1{font-size:24px;margin:5px 0 0}small{color:#5368c7}header span{font-size:12px;color:#9a641a;background:#fff3df;padding:7px 10px;border-radius:6px}label{display:flex;justify-content:space-between;font-weight:600}input{width:100%;margin:24px 0}section div{display:flex;gap:8px}button{border:1px solid #d9dde4;background:#fff;border-radius:7px;padding:9px 12px;cursor:pointer}button:last-child{background:#4b64d9;color:#fff;border-color:#4b64d9}pre{min-height:150px;white-space:pre-wrap;font:12px/1.7 ui-monospace,monospace;color:#56606d}
+""")
+    save("06_interface/frontend/app.js", """const level=document.querySelector("#level");const value=document.querySelector("#value");const log=document.querySelector("#log");const status=document.querySelector("#status");
+level.addEventListener("input",()=>value.textContent=level.value);
+async function command(name,payload={}){const response=await fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"command",request_id:crypto.randomUUID(),name,payload})});const result=await response.json();log.textContent=JSON.stringify(result,null,2);status.textContent=result.status==="accepted"?"命令已校验":"请求失败";}
+document.querySelectorAll("[data-command]").forEach(button=>button.addEventListener("click",()=>command(button.dataset.command)));
+document.querySelector("#apply").addEventListener("click",()=>command("set_output",{level:Number(level.value)}));
+""")
+    save("06_interface/backend/README.md", "# 控制接口\n\n从此目录运行 `python server.py`。服务只监听本机并执行协议白名单校验；默认不会连接串口或真实硬件。\n")
+    save("06_interface/backend/server.py", """from __future__ import annotations
+import json
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+ALLOWED_COMMANDS = {"ping", "get_status", "set_output"}
+FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(FRONTEND), **kwargs)
+
+    def do_POST(self) -> None:
+        if self.path != "/api/command":
+            self.send_error(404); return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if size > 512: raise ValueError("message exceeds 512 bytes")
+            message = json.loads(self.rfile.read(size))
+            if message.get("type") != "command" or not message.get("request_id"):
+                raise ValueError("type and request_id are required")
+            if message.get("name") not in ALLOWED_COMMANDS:
+                raise ValueError("unknown command")
+            result = {"type": "response", "request_id": message["request_id"], "status": "accepted",
+                      "message": "仅完成本地协议校验；未连接或操作真实硬件"}
+            self._json(200, result)
+        except (ValueError, json.JSONDecodeError) as error:
+            self._json(422, {"type": "error", "code": "INVALID_PAYLOAD", "message": str(error)})
+
+    def _json(self, status: int, value: dict) -> None:
+        body = json.dumps(value, ensure_ascii=False).encode()
+        self.send_response(status); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+
+if __name__ == "__main__":
+    print("Local prototype console: http://localhost:8765")
+    ThreadingHTTPServer(("127.0.0.1", 8765), Handler).serve_forever()
+""")
 
     test_cases = [
         ["T-001", "首次上电", "断开执行器并限流上电", "主控无异常发热"],

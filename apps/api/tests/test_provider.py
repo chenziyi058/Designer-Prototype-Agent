@@ -16,6 +16,10 @@ def test_deepseek_requires_key():
 
 
 def test_default_model_fallback():
-    config = Settings(deepseek_default_model="default-model", deepseek_reasoning_model="")
+    config = Settings(
+        deepseek_default_model="default-model",
+        deepseek_reasoning_model="",
+        deepseek_coding_model="",
+    )
     assert config.model_for("reasoning") == "default-model"
     assert config.model_for("coding") == "default-model"

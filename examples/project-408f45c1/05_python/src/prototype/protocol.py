@@ -2,7 +2,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+PROTOCOL_VERSION = "1.0.0"
+BAUD_RATE = 115200
 MAX_MESSAGE_BYTES = 512
+COMMANDS = ["ping", "get_status", "set_output"]
+ERROR_CODES = ["INVALID_JSON", "UNKNOWN_COMMAND", "INVALID_PAYLOAD", "INTERNAL_ERROR"]
+
 @dataclass(frozen=True)
 class Message:
     type: str

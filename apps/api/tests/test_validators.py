@@ -16,6 +16,7 @@ def test_bom_totals_tracks_unknown_cost():
 
 def test_pin_and_voltage_conflicts_are_errors():
     spec = smart_ring_spec()
+    spec.hardware.controllers[0].logic_voltage = NumberValue(value=3.3, source=Source.CATALOG)
     spec.hardware.sensors[0].pins = {"A": 4}
     spec.hardware.actuators[0].pins = {"PWM": 4}
     spec.hardware.sensors[0].logic_voltage = NumberValue(value=5, source=Source.CATALOG)
