@@ -28,6 +28,9 @@ test("requirements can be explicitly confirmed and dropdowns are controlled", as
   assert.match(page, /确认并创建新版本/);
   assert.match(page, /确认回答/);
   assert.match(page, /spec\/confirmations/);
+  assert.match(page, /DeepSeek 推荐 3 个候选/);
+  assert.match(page, /选择此方案并确认/);
+  assert.match(page, /spec\/recommendations/);
   assert.match(page, /aria-haspopup="listbox"/);
   assert.doesNotMatch(page, /<select/);
   assert.doesNotMatch(page, /<details/);

@@ -379,6 +379,111 @@ preferred_controller,assumptions,must_confirm_questions,safety_flags。
   return { extraction, model: output.model, usage: output.usage };
 }
 
+type ComponentCandidate = {
+  name: string;
+  category: string;
+  fit_reason: string;
+  tradeoffs: string;
+  verification_required: string[];
+  recommended: boolean;
+};
+
+type ComponentRecommendationSet = {
+  question: string;
+  candidates: ComponentCandidate[];
+  disclaimer: string;
+};
+
+const sensitiveEngineeringClaim = /(?:电压|电流|功率|逻辑电平|阈值|引脚|gpio|i²c|i2c|地址|兼容|供电能力|额定|峰值|库存|价格|直驱|直接驱动|电平转换|(?:esp32|arduino|树莓派|raspberry).{0,24}(?:支持|驱动|兼容|可用)|\d+(?:\.\d+)?\s*(?:v|ma|a|w|hz|khz|mhz|ω|ohm|%))/i;
+
+function sanitizeRecommendationNarrative(value: string) {
+  const safe = value
+    .split(/[。；;]\s*/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .filter((sentence) => !sensitiveEngineeringClaim.test(sentence))
+    .join("；");
+  return safe || "与当前原型的适配方向可供比较；具体电气参数和兼容性需要查看正式数据手册并进行实物测试。";
+}
+
+function normalizeVerificationItem(value: string) {
+  const lower = value.toLowerCase();
+  if (/(电压|供电|逻辑电平|阈值)/.test(lower)) return "工作电压与逻辑电平：查看正式数据手册";
+  if (/(电流|功率|温升|额定|峰值)/.test(lower)) return "持续／峰值电流、功率与温升：查看数据手册并实测";
+  if (/(引脚|gpio|i²c|i2c|spi|uart|接口|协议|兼容)/.test(lower)) return "接口、引脚、协议与主控兼容性：查看双方正式数据手册";
+  if (/(尺寸|安装|机械|公差)/.test(lower)) return "机械尺寸、安装方式与公差：查看图纸并进行实物测试";
+  if (/(寿命|耐久|连续运行|噪声)/.test(lower)) return "寿命、耐久、连续运行与噪声：需要用户实物测试";
+  return sensitiveEngineeringClaim.test(value)
+    ? "具体参数：查看正式数据手册并进行实物测试"
+    : value.trim().slice(0, 180);
+}
+
+async function recommendComponents(env: WorkerEnv, spec: ProjectSpec, question: string) {
+  if (!env.DEEPSEEK_API_KEY) {
+    throw new ApiError(503, "站点尚未配置 DeepSeek，无法生成元件候选");
+  }
+  const prompt = `基于当前 ProjectSpec，为下面的待确认问题给出恰好 3 个元件或技术方案候选。
+优先给出明确、常见的具体型号或产品系列，让工业设计师可以进行选择；但绝对不得编造引脚、
+工作电压、电流、I²C 地址、价格、库存或兼容性。每个候选只能包含：
+name（型号或系列）、category、fit_reason、tradeoffs、verification_required（字符串数组）、
+recommended（布尔值）。只能有一个 recommended=true。
+所有未验证参数必须放入 verification_required，明确需要查看正式数据手册或实物测试。
+只返回 JSON：{"question":"...","candidates":[...],"disclaimer":"..."}。
+
+待确认问题：${question}
+当前 ProjectSpec：${JSON.stringify(spec)}`;
+  const output = await deepSeek(
+    env,
+    [{ role: "system", content: SYSTEM_GUARDRAILS }, { role: "user", content: prompt }],
+    "default",
+    true,
+    1800,
+  );
+  const parsed = parseModelJson<ComponentRecommendationSet>(output.content);
+  if (!Array.isArray(parsed.candidates) || parsed.candidates.length !== 3) {
+    throw new ApiError(502, "DeepSeek 未返回 3 个有效候选方案");
+  }
+  const candidates = parsed.candidates.map((candidate, index) => {
+    if (
+      !candidate || typeof candidate.name !== "string" || candidate.name.trim().length < 2
+      || typeof candidate.category !== "string" || typeof candidate.fit_reason !== "string"
+      || typeof candidate.tradeoffs !== "string"
+      || !Array.isArray(candidate.verification_required)
+    ) {
+      throw new ApiError(502, `DeepSeek 返回的第 ${index + 1} 个候选不完整`);
+    }
+    const verification = [...new Set(candidate.verification_required
+      .filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+      .map(normalizeVerificationItem))]
+      .slice(0, 8);
+    return {
+      name: candidate.name.trim().slice(0, 160),
+      category: candidate.category.trim().slice(0, 80),
+      fit_reason: sanitizeRecommendationNarrative(candidate.fit_reason).slice(0, 600),
+      tradeoffs: sanitizeRecommendationNarrative(candidate.tradeoffs).slice(0, 600),
+      verification_required: verification.length
+        ? verification
+        : ["型号、关键参数与兼容性：查看正式数据手册并进行实物测试"],
+      recommended: Boolean(candidate.recommended),
+    };
+  });
+  const preferred = candidates.findIndex((candidate) => candidate.recommended);
+  candidates.forEach((candidate, index) => {
+    candidate.recommended = index === (preferred >= 0 ? preferred : 0);
+  });
+  return {
+    recommendations: {
+      question,
+      candidates,
+      disclaimer: typeof parsed.disclaimer === "string" && parsed.disclaimer.trim()
+        ? parsed.disclaimer.trim().slice(0, 600)
+        : "候选仅用于方案比较；选择前必须查看正式数据手册并进行实物测试。",
+    },
+    model: output.model,
+    usage: output.usage,
+  };
+}
+
 function affectedModules(message: string) {
   const rules: Array<[string[], string[]]> = [
     [["主控", "esp32", "raspberry", "arduino", "树莓派"], ["ProjectSpec", "硬件选型", "GPIO", "电压", "通信协议", "固件", "电源", "BOM", "接线", "测试", "README"]],
@@ -899,6 +1004,46 @@ export async function handleApi(
         payload.affected_modules || ["ProjectSpec"],
       );
       return jsonResponse({ version, affected_modules: payload.affected_modules || ["ProjectSpec"] });
+    }
+    if (
+      parts[3] === "spec" && parts[4] === "recommendations"
+      && parts.length === 5 && method === "POST"
+    ) {
+      const payload = await readBody<{ field?: string; question_index?: number }>(request);
+      const spec = await getSpec(env, owner, projectId);
+      let question: string;
+      let targetKey: string;
+      if (payload.field === "hardware.preferred_controller") {
+        question = "当前原型应该选择哪一种主控具体型号或产品系列？";
+        targetKey = `field:${payload.field}`;
+      } else if (Number.isInteger(payload.question_index)) {
+        const index = payload.question_index as number;
+        const item = spec.open_questions[index];
+        if (!item) throw new ApiError(404, "待确认问题不存在");
+        if (item.verification_status === "USER_CONFIRMED") throw new ApiError(409, "该问题已经确认");
+        question = item.value;
+        targetKey = `question:${index}`;
+      } else {
+        throw new ApiError(422, "必须指定可推荐的元件字段或待确认问题");
+      }
+      const result = await recommendComponents(env, spec, question);
+      await recordRun(env, projectId, {
+        task: "生成元件候选方案",
+        provider: "deepseek",
+        model: result.model,
+        skill: "Component Candidate Recommender",
+        input: question,
+        result: JSON.stringify(result.recommendations).slice(0, 1000),
+        usage: result.usage,
+        requiresConfirmation: true,
+      });
+      return jsonResponse({
+        ...result.recommendations,
+        target_key: targetKey,
+        provider: "deepseek",
+        model: result.model,
+        requires_confirmation: true,
+      });
     }
     if (
       parts[3] === "spec" && parts[4] === "confirmations"

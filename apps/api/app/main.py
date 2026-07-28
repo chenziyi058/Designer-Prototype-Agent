@@ -158,6 +158,56 @@ def confirmed_text(value: str, label: str) -> TextValue:
     )
 
 
+@app.post("/api/projects/{project_id}/spec/recommendations")
+async def recommend_requirement_candidates(
+    project_id: str,
+    payload: dict,
+    svc: ProjectService = Depends(service),
+    agent: PrototypeEngineerOrchestrator = Depends(orchestrator),
+) -> dict:
+    spec = svc.spec(project_id)
+    field = payload.get("field")
+    if field == "hardware.preferred_controller":
+        question = "当前原型应该选择哪一种主控具体型号或产品系列？"
+        target_key = f"field:{field}"
+    elif isinstance(payload.get("question_index"), int):
+        index = payload["question_index"]
+        if index < 0 or index >= len(spec.open_questions):
+            raise HTTPException(404, "待确认问题不存在")
+        if (
+            spec.open_questions[index].verification_status
+            == VerificationStatus.USER_CONFIRMED
+        ):
+            raise HTTPException(409, "该问题已经确认")
+        question = spec.open_questions[index].value
+        target_key = f"question:{index}"
+    else:
+        raise HTTPException(422, "必须指定可推荐的元件字段或待确认问题")
+
+    try:
+        recommendations, output = await agent.recommend_components(spec, question)
+    except ProviderError as error:
+        raise HTTPException(502, f"DeepSeek 候选推荐失败: {error}") from error
+    svc.record_agent_run(
+        project_id,
+        task_name="生成元件候选方案",
+        provider=output.provider,
+        model=output.model,
+        skill="Component Candidate Recommender",
+        input_summary=question,
+        result_summary=output.content[:1000],
+        token_usage=output.usage,
+        requires_confirmation=True,
+    )
+    return {
+        **recommendations.model_dump(mode="json"),
+        "target_key": target_key,
+        "provider": output.provider,
+        "model": output.model,
+        "requires_confirmation": True,
+    }
+
+
 @app.post("/api/projects/{project_id}/spec/confirmations")
 def confirm_requirement(
     project_id: str, payload: dict, svc: ProjectService = Depends(service)

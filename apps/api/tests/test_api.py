@@ -69,6 +69,18 @@ def test_spec_version_update(client):
 def test_requirement_confirmation_creates_audited_versions(client):
     project_id = create_project(client)["id"]
 
+    recommendation = client.post(
+        f"/api/projects/{project_id}/spec/recommendations",
+        json={"question_index": 0},
+    )
+    assert recommendation.status_code == 200, recommendation.text
+    assert len(recommendation.json()["candidates"]) == 3
+    assert recommendation.json()["requires_confirmation"] is True
+    assert all(
+        item["verification_required"]
+        for item in recommendation.json()["candidates"]
+    )
+
     field = client.post(
         f"/api/projects/{project_id}/spec/confirmations",
         json={"field": "constraints.budget_cny", "value": 960},

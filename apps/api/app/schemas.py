@@ -208,6 +208,56 @@ class MessageCreate(BaseModel):
     apply_change: bool = True
 
 
+class ComponentCandidate(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    category: str = Field(min_length=2, max_length=80)
+    fit_reason: str = Field(min_length=4, max_length=600)
+    tradeoffs: str = Field(min_length=4, max_length=600)
+    verification_required: list[str] = Field(min_length=1, max_length=8)
+    recommended: bool = False
+
+
+class ComponentRecommendationSet(BaseModel):
+    question: str
+    candidates: list[ComponentCandidate] = Field(min_length=3, max_length=3)
+    disclaimer: str = (
+        "候选仅用于方案比较；型号、引脚、电压、电流、接口和兼容性必须查看正式数据手册并进行实物测试。"
+    )
+
+    model_config = ConfigDict(json_schema_extra={
+        "examples": [{
+            "question": "旋转输入元件应该选择什么型号？",
+            "candidates": [
+                {
+                    "name": "候选 A（具体型号待数据手册核对）",
+                    "category": "旋转输入",
+                    "fit_reason": "适合低成本桌面功能原型。",
+                    "tradeoffs": "耐久性与分辨率需要取舍。",
+                    "verification_required": ["工作电压", "机械尺寸", "接口与引脚"],
+                    "recommended": True,
+                },
+                {
+                    "name": "候选 B（具体型号待数据手册核对）",
+                    "category": "旋转输入",
+                    "fit_reason": "适合需要绝对角度的原型。",
+                    "tradeoffs": "软件与成本复杂度可能更高。",
+                    "verification_required": ["通信接口", "供电范围", "采样速率"],
+                    "recommended": False,
+                },
+                {
+                    "name": "候选 C（具体型号待数据手册核对）",
+                    "category": "旋转输入",
+                    "fit_reason": "适合非接触式验证。",
+                    "tradeoffs": "机械安装和磁体配合需要验证。",
+                    "verification_required": ["安装公差", "电气接口", "环境适应性"],
+                    "recommended": False,
+                },
+            ],
+            "disclaimer": "候选均为 Agent 推荐，选择前必须核对正式数据手册。",
+        }],
+    })
+
+
 class RequirementChange(BaseModel):
     """A deliberately bounded model-facing change set for ProjectSpec updates."""
 

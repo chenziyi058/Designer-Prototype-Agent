@@ -11,6 +11,7 @@ from .generator import create_initial_spec
 from .providers import ModelProvider
 from .schemas import (
     BoolValue,
+    ComponentRecommendationSet,
     ListValue,
     ProjectCreate,
     ProjectSpec,
@@ -28,6 +29,43 @@ ProjectSpec 是唯一需求事实来源。你可以解释、推理和提出候�
 “待确认”“需要查看数据手册”或“需要用户实物测试”。不要输出内部思维过程，只输出结论、
 证据来源、风险和下一步。涉及真实硬件时必须保留人工接线检查、合适驱动器、限流和急停提醒。
 """
+
+SENSITIVE_ENGINEERING_CLAIM = re.compile(
+    r"(?:电压|电流|功率|逻辑电平|阈值|引脚|gpio|i²c|i2c|地址|兼容|供电能力|"
+    r"额定|峰值|库存|价格|直驱|直接驱动|电平转换|"
+    r"(?:esp32|arduino|树莓派|raspberry).{0,24}(?:支持|驱动|兼容|可用)|"
+    r"\d+(?:\.\d+)?\s*(?:v|ma|a|w|hz|khz|mhz|ω|ohm|%))",
+    re.IGNORECASE,
+)
+
+
+def sanitize_recommendation_narrative(value: str) -> str:
+    safe = "；".join(
+        sentence.strip()
+        for sentence in re.split(r"[。；;]\s*", value)
+        if sentence.strip() and not SENSITIVE_ENGINEERING_CLAIM.search(sentence)
+    )
+    return safe or (
+        "与当前原型的适配方向可供比较；具体电气参数和兼容性需要查看正式数据手册"
+        "并进行实物测试。"
+    )
+
+
+def normalize_verification_item(value: str) -> str:
+    lowered = value.lower()
+    if re.search(r"电压|供电|逻辑电平|阈值", lowered):
+        return "工作电压与逻辑电平：查看正式数据手册"
+    if re.search(r"电流|功率|温升|额定|峰值", lowered):
+        return "持续／峰值电流、功率与温升：查看数据手册并实测"
+    if re.search(r"引脚|gpio|i²c|i2c|spi|uart|接口|协议|兼容", lowered):
+        return "接口、引脚、协议与主控兼容性：查看双方正式数据手册"
+    if re.search(r"尺寸|安装|机械|公差", lowered):
+        return "机械尺寸、安装方式与公差：查看图纸并进行实物测试"
+    if re.search(r"寿命|耐久|连续运行|噪声", lowered):
+        return "寿命、耐久、连续运行与噪声：需要用户实物测试"
+    if SENSITIVE_ENGINEERING_CLAIM.search(value):
+        return "具体参数：查看正式数据手册并进行实物测试"
+    return value.strip()[:180]
 
 
 @dataclass
@@ -236,6 +274,56 @@ class PrototypeEngineerOrchestrator:
             role="reasoning",
         )
         return self._output(reply, True)
+
+    async def recommend_components(
+        self, spec: ProjectSpec, question: str
+    ) -> tuple[ComponentRecommendationSet, AgentOutput]:
+        context = json.dumps(spec.model_dump(mode="json"), ensure_ascii=False)
+        data = await self.provider.generate_json(
+            [
+                {"role": "system", "content": SYSTEM_GUARDRAILS},
+                {
+                    "role": "system",
+                    "content": (
+                        "你负责为工业设计原型比较元件候选。必须给出恰好 3 个可区分的候选；"
+                        "优先给出明确的常见型号或产品系列，但不得编造引脚、电压、电流、地址、"
+                        "价格、库存或兼容性。fit_reason 只解释与 ProjectSpec 的匹配方向；"
+                        "tradeoffs 说明取舍；verification_required 列出必须查正式数据手册或"
+                        "实物验证的项目。只能有一个 recommended=true。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"当前 ProjectSpec：\n{context}\n\n"
+                        f"需要推荐候选的问题：{question}\n"
+                        "请基于预算、使用环境、原型等级、主控偏好和已有元件进行比较。"
+                    ),
+                },
+            ],
+            ComponentRecommendationSet,
+            role="reasoning",
+        )
+        recommendations = ComponentRecommendationSet.model_validate(data)
+        for candidate in recommendations.candidates:
+            candidate.fit_reason = sanitize_recommendation_narrative(candidate.fit_reason)
+            candidate.tradeoffs = sanitize_recommendation_narrative(candidate.tradeoffs)
+            candidate.verification_required = list(dict.fromkeys(
+                normalize_verification_item(item)
+                for item in candidate.verification_required
+                if item.strip()
+            )) or ["型号、关键参数与兼容性：查看正式数据手册并进行实物测试"]
+        recommended_indexes = [
+            index for index, item in enumerate(recommendations.candidates)
+            if item.recommended
+        ]
+        if len(recommended_indexes) != 1:
+            for index, item in enumerate(recommendations.candidates):
+                item.recommended = index == 0
+        return recommendations, self._output(
+            json.dumps(recommendations.model_dump(mode="json"), ensure_ascii=False),
+            True,
+        )
 
     async def process_project_message(
         self,

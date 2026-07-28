@@ -4,7 +4,7 @@ import {
   AlertTriangle, ArrowRight, Bot, Box, Check, ChevronDown, ChevronRight, CircleDollarSign,
   Clipboard, ClipboardCheck, Code2, Cpu, Download, FileCode2, FileText,
   FolderOpen, GitBranch, Home, Layers3, LoaderCircle, Menu, PackageSearch,
-  Plus, Send, Settings2, ShieldCheck, Sparkles, TestTube2,
+  Lightbulb, Plus, Send, Settings2, ShieldCheck, Sparkles, TestTube2,
   Unplug, X,
 } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -111,6 +111,22 @@ type ChatMessage = {
   role: "user" | "agent";
   text: string;
   affected?: string[];
+};
+type ComponentRecommendation = {
+  question: string;
+  candidates: Array<{
+    name: string;
+    category: string;
+    fit_reason: string;
+    tradeoffs: string;
+    verification_required: string[];
+    recommended: boolean;
+  }>;
+  disclaimer: string;
+  target_key: string;
+  provider: string;
+  model: string;
+  requires_confirmation: boolean;
 };
 type ProjectForm = {
   name: string;
@@ -507,6 +523,26 @@ export default function HomePage() {
     }
   }
 
+  async function recommendRequirement(payload: {
+    field?: string;
+    question_index?: number;
+  }) {
+    if (!project || busy) throw new Error("Agent 正在处理其他任务");
+    setBusy("DeepSeek 正在比较 3 个候选方案");
+    setError("");
+    try {
+      return await request<ComponentRecommendation>(
+        `/api/projects/${project.id}/spec/recommendations`,
+        { method: "POST", body: JSON.stringify(payload) },
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "候选方案生成失败");
+      throw reason;
+    } finally {
+      setBusy("");
+    }
+  }
+
   function exportProject() {
     if (project) window.location.assign(`${API_URL}/api/projects/${project.id}/export`);
   }
@@ -596,6 +632,7 @@ export default function HomePage() {
               versions={active === "需求" ? versions : undefined}
               onRestore={restoreVersion}
               onConfirm={confirmRequirement}
+              onRecommend={recommendRequirement}
               disabled={Boolean(busy)}
             />
           )}
@@ -723,7 +760,7 @@ function Fact({ label, traced }: { label: string; traced: Traced<unknown> }) {
 function ModuleView({
   title, description, artifacts, selected, preview, onOpen, onGenerate, onValidate,
   projectId, spec, disabled,
-  versions, onRestore, onConfirm,
+  versions, onRestore, onConfirm, onRecommend,
 }: {
   title: string;
   description: string;
@@ -743,6 +780,10 @@ function ModuleView({
     question_index?: number;
     answer?: string;
   }) => Promise<void>;
+  onRecommend?: (payload: {
+    field?: string;
+    question_index?: number;
+  }) => Promise<ComponentRecommendation>;
   disabled: boolean;
 }) {
   return <>
@@ -755,6 +796,7 @@ function ModuleView({
       versions={versions ?? []}
       onRestore={onRestore}
       onConfirm={onConfirm}
+      onRecommend={onRecommend}
       disabled={disabled}
     />}
     <div className="artifact-layout">
@@ -783,7 +825,7 @@ function ModuleView({
 }
 
 function SpecSummary({
-  spec, versions, onRestore, onConfirm, disabled,
+  spec, versions, onRestore, onConfirm, onRecommend, disabled,
 }: {
   spec: ProjectSpec;
   versions: SpecVersion[];
@@ -794,11 +836,16 @@ function SpecSummary({
     question_index?: number;
     answer?: string;
   }) => Promise<void>;
+  onRecommend?: (payload: {
+    field?: string;
+    question_index?: number;
+  }) => Promise<ComponentRecommendation>;
   disabled: boolean;
 }) {
   const [editing, setEditing] = useState("");
   const [fieldValue, setFieldValue] = useState("");
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [recommendations, setRecommendations] = useState<Record<string, ComponentRecommendation>>({});
   const cards: Array<{
     field: string;
     label: string;
@@ -817,13 +864,24 @@ function SpecSummary({
   const questions = spec.open_questions.map((item, index) => ({ item, index }));
   const pendingQuestions = questions.filter(({ item }) => item.verification_status !== "USER_CONFIRMED");
   const resolvedQuestions = questions.filter(({ item }) => item.verification_status === "USER_CONFIRMED");
+  const controllerRecommendationKey = "field:hardware.preferred_controller";
+
+  async function loadRecommendations(
+    key: string,
+    payload: { field?: string; question_index?: number },
+  ) {
+    try {
+      const result = await onRecommend?.(payload);
+      if (result) setRecommendations((current) => ({ ...current, [key]: result }));
+    } catch { /* 全局错误条会展示后端错误 */ }
+  }
 
   return <>
     <section className="card confirmation-guide">
       <ClipboardCheck size={18} />
       <div>
         <strong>如何确认需求</strong>
-        <p>字段有误可点“修改并确认”；澄清问题填写答案后点“确认回答”。每次操作都会创建新的 ProjectSpec 版本，并把受影响的派生文件标为待复核。</p>
+        <p>不知道具体元件时，先让 DeepSeek 比较 3 个候选，再选择一个写入 ProjectSpec；已有明确规格时也可手动填写。每次确认都会创建新版本，并把受影响文件标为待复核。</p>
       </div>
     </section>
     <div className="spec-grid">{cards.map((card) => (
@@ -862,15 +920,58 @@ function SpecSummary({
             disabled={disabled}
             onClick={() => { setEditing(card.field); setFieldValue(card.value); }}
           >{card.traced.verification_status === "USER_CONFIRMED" ? "修改已确认值" : "修改并确认"}</button>
+          {card.field === "hardware.preferred_controller" && <button
+            type="button"
+            className="trace-recommend"
+            disabled={disabled}
+            onClick={() => void loadRecommendations(
+              controllerRecommendationKey,
+              { field: "hardware.preferred_controller" },
+            )}
+          ><Lightbulb size={13} /> DeepSeek 推荐主控</button>}
         </>}
       </article>
     ))}</div>
+    {recommendations[controllerRecommendationKey] && <RecommendationPanel
+      data={recommendations[controllerRecommendationKey]}
+      disabled={disabled}
+      onSelect={async (candidate) => {
+        await onConfirm?.({
+          field: "hardware.preferred_controller",
+          value: candidate.name,
+        });
+      }}
+    />}
     <section className="card question-list">
       <Title kicker="Open questions" title="关键待确认问题" extra={<Badge tone={pendingQuestions.length ? "waiting" : "done"}>{pendingQuestions.length} 项</Badge>} />
       {pendingQuestions.map(({ item, index }) => <div className="question-item" key={`${index}-${item.value}`}>
         <AlertTriangle size={15} />
         <div>
           <strong>{item.value}</strong>
+          <div className="question-actions">
+            <button
+              type="button"
+              className="button secondary compact recommend-button"
+              disabled={disabled}
+              onClick={() => void loadRecommendations(
+                `question:${index}`,
+                { question_index: index },
+              )}
+            ><Lightbulb size={14} /> DeepSeek 推荐 3 个候选</button>
+            <small>候选只作为选择起点，关键电气参数仍需核对数据手册。</small>
+          </div>
+          {recommendations[`question:${index}`] && <RecommendationPanel
+            data={recommendations[`question:${index}`]}
+            disabled={disabled}
+            onSelect={async (candidate) => {
+              const verification = candidate.verification_required.join("、");
+              await onConfirm?.({
+                question_index: index,
+                answer: `选择候选：${candidate.name}。选择理由：${candidate.fit_reason}。待验证：${verification}。`,
+              });
+            }}
+          />}
+          <small className="manual-answer-label">如果你已有明确型号或规格，也可以直接填写：</small>
           <textarea
             aria-label={`回答问题：${item.value}`}
             placeholder="填写已经确认的事实、规格或约束；不确定时请保留待确认。"
@@ -906,6 +1007,49 @@ function SpecSummary({
       </div>)}
     </section>
   </>;
+}
+
+function RecommendationPanel({
+  data, disabled, onSelect,
+}: {
+  data: ComponentRecommendation;
+  disabled: boolean;
+  onSelect: (candidate: ComponentRecommendation["candidates"][number]) => Promise<void>;
+}) {
+  const [selecting, setSelecting] = useState("");
+  return <section className="recommendation-panel" aria-label={`候选方案：${data.question}`}>
+    <header>
+      <div><Lightbulb size={16} /><strong>候选方案比较</strong></div>
+      <small>{data.provider === "deepseek" ? `DeepSeek · ${data.model}` : data.provider}</small>
+    </header>
+    <div className="candidate-grid">{data.candidates.map((candidate) => (
+      <article className={candidate.recommended ? "recommended" : ""} key={candidate.name}>
+        <div>
+          <Badge tone={candidate.recommended ? "active" : "neutral"}>
+            {candidate.recommended ? "Agent 优先推荐" : candidate.category}
+          </Badge>
+        </div>
+        <h3>{candidate.name}</h3>
+        <dl>
+          <div><dt>适配理由</dt><dd>{candidate.fit_reason}</dd></div>
+          <div><dt>主要取舍</dt><dd>{candidate.tradeoffs}</dd></div>
+          <div><dt>选择前验证</dt><dd>{candidate.verification_required.join("、")}</dd></div>
+        </dl>
+        <button
+          type="button"
+          className={`button compact ${candidate.recommended ? "primary" : "secondary"}`}
+          disabled={disabled || Boolean(selecting)}
+          onClick={() => {
+            setSelecting(candidate.name);
+            void onSelect(candidate)
+              .catch(() => undefined)
+              .finally(() => setSelecting(""));
+          }}
+        >{selecting === candidate.name ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}选择此方案并确认</button>
+      </article>
+    ))}</div>
+    <p><AlertTriangle size={13} />{data.disclaimer}</p>
+  </section>;
 }
 
 function ValidationView({

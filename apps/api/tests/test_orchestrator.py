@@ -27,6 +27,37 @@ class FakeDeepSeekProvider(ModelProvider):
                 "affected_modules": ["ProjectSpec", "BOM", "工程摘要"],
                 "requires_confirmation": True,
             }
+        if schema.__name__ == "ComponentRecommendationSet":
+            return {
+                "question": "阻尼执行器应该选择什么？",
+                "candidates": [
+                    {
+                        "name": "候选执行器 A",
+                        "category": "阻尼执行器",
+                        "fit_reason": "适合低压有人值守原型。",
+                        "tradeoffs": "通常需要 5V，峰值电流约 60mA；输出能力与体积需要取舍。",
+                        "verification_required": ["工作电压", "额定和启动电流"],
+                        "recommended": True,
+                    },
+                    {
+                        "name": "候选执行器 B",
+                        "category": "阻尼执行器",
+                        "fit_reason": "适合较平滑的阻尼控制。",
+                        "tradeoffs": "驱动和控制复杂度更高。",
+                        "verification_required": ["驱动器兼容性", "温升"],
+                        "recommended": False,
+                    },
+                    {
+                        "name": "候选执行器 C",
+                        "category": "阻尼执行器",
+                        "fit_reason": "适合快速功能验证。",
+                        "tradeoffs": "噪声和寿命需要实测。",
+                        "verification_required": ["机械安装", "连续运行寿命"],
+                        "recommended": False,
+                    },
+                ],
+                "disclaimer": "所有参数均需查看正式数据手册并进行实物测试。",
+            }
         return {
             "product_goal": "验证旋转交互能否帮助用户形成专注节奏",
             "target_user": "需要专注辅助的桌面工作者",
@@ -87,6 +118,28 @@ async def test_deepseek_project_message_uses_spec_context():
     assert output.provider == "deepseek"
     assert "数据手册" in output.content
     assert provider.calls[-1] == "text:reasoning"
+
+
+@pytest.mark.asyncio
+async def test_deepseek_recommends_three_candidates_without_claiming_verification():
+    provider = FakeDeepSeekProvider()
+    agent = PrototypeEngineerOrchestrator(provider)
+    spec, _ = await agent.interpret_requirements(ProjectCreate(
+        name="智能指环",
+        description="通过旋转采集行为并根据专注状态改变阻尼的智能指环原型",
+    ))
+    recommendations, output = await agent.recommend_components(
+        spec, spec.open_questions[0].value
+    )
+    assert len(recommendations.candidates) == 3
+    assert sum(item.recommended for item in recommendations.candidates) == 1
+    assert all(item.verification_required for item in recommendations.candidates)
+    rendered = recommendations.model_dump_json()
+    assert "5V" not in rendered
+    assert "60mA" not in rendered
+    assert "数据手册" in recommendations.disclaimer
+    assert output.requires_confirmation is True
+    assert provider.calls[-1] == "json:reasoning"
 
 
 @pytest.mark.asyncio
