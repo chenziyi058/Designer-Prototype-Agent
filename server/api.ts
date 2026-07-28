@@ -442,6 +442,98 @@ function applyChange(spec: ProjectSpec, change: RequirementChange, message: stri
   return updated;
 }
 
+type RequirementConfirmation = {
+  field?: string;
+  value?: string | number;
+  question_index?: number;
+  answer?: string;
+};
+
+function applyRequirementConfirmation(spec: ProjectSpec, payload: RequirementConfirmation) {
+  const updated = structuredClone(spec);
+  let reason = "";
+  let modules: string[] = [];
+
+  if (payload.field) {
+    const text = typeof payload.value === "string" ? payload.value.trim() : "";
+    switch (payload.field) {
+      case "project.product_goal":
+        if (!text) throw new ApiError(422, "产品目标不能为空");
+        updated.project.product_goal = userTraced(text, "需求页字段确认");
+        modules = ["ProjectSpec", "系统架构", "测试", "文档"];
+        reason = "确认需求字段：产品目标";
+        break;
+      case "user.target_user":
+        if (!text) throw new ApiError(422, "目标用户不能为空");
+        updated.user.target_user = userTraced(text, "需求页字段确认");
+        modules = ["ProjectSpec", "系统架构", "控制界面", "测试", "文档"];
+        reason = "确认需求字段：目标用户";
+        break;
+      case "scenario.usage_environment":
+        if (!text) throw new ApiError(422, "使用环境不能为空");
+        updated.scenario.usage_environment = userTraced(text, "需求页字段确认");
+        modules = ["ProjectSpec", "系统架构", "硬件选型", "测试", "文档"];
+        reason = "确认需求字段：使用环境";
+        break;
+      case "hardware.preferred_controller":
+        if (!text) throw new ApiError(422, "主控偏好不能为空");
+        updated.hardware.preferred_controller = userTraced(text, "需求页字段确认");
+        if (updated.hardware.controllers[0]) {
+          updated.hardware.controllers[0].model = userTraced(text, "需求页字段确认");
+          updated.hardware.controllers[0].pins = {};
+          updated.hardware.controllers[0].operating_voltage.value = null;
+          updated.hardware.controllers[0].logic_voltage.value = null;
+          updated.hardware.controllers[0].max_current_ma.value = null;
+        }
+        modules = affectedModules(`主控 ${text}`);
+        reason = "确认需求字段：主控偏好";
+        break;
+      case "constraints.budget_cny": {
+        const budget = Number(payload.value);
+        if (!Number.isFinite(budget) || budget <= 0) throw new ApiError(422, "预算必须是大于零的数字");
+        updated.constraints.budget_cny = userTraced<number | null>(budget, "需求页字段确认");
+        modules = affectedModules(`预算 ${budget} 元`);
+        reason = "确认需求字段：预算";
+        break;
+      }
+      case "project.prototype_level":
+        if (!text) throw new ApiError(422, "原型等级不能为空");
+        updated.project.prototype_level = userTraced(text, "需求页字段确认");
+        modules = ["ProjectSpec", "系统架构", "硬件选型", "固件", "Python", "控制界面", "测试", "文档"];
+        reason = "确认需求字段：原型等级";
+        break;
+      default:
+        throw new ApiError(422, "不支持确认该需求字段");
+    }
+  } else if (Number.isInteger(payload.question_index)) {
+    const index = payload.question_index as number;
+    const answer = payload.answer?.trim() || "";
+    if (!answer) throw new ApiError(422, "确认回答不能为空");
+    const question = updated.open_questions[index];
+    if (!question) throw new ApiError(404, "待确认问题不存在");
+    if (question.verification_status === "USER_CONFIRMED") throw new ApiError(409, "该问题已经确认");
+    updated.open_questions[index] = {
+      value: question.value,
+      source: "user_provided",
+      confidence: 1,
+      verification_status: "USER_CONFIRMED",
+      notes: `用户回答：${answer}`,
+    };
+    modules = affectedModules(`${question.value} ${answer}`);
+    reason = `确认需求问题：${question.value.slice(0, 80)}`;
+  } else {
+    throw new ApiError(422, "必须指定待确认字段或问题");
+  }
+
+  const hasPendingQuestion = updated.open_questions.some(
+    (item) => item.verification_status !== "USER_CONFIRMED",
+  );
+  updated.project.updated_at = timestamp();
+  updated.project.status = hasPendingQuestion ? "NEEDS_CONFIRMATION" : "SPEC_VERIFIED";
+  updated.verification.requirement_status = hasPendingQuestion ? "NEEDS_CONFIRMATION" : "SPEC_VERIFIED";
+  return { updated, reason, modules: [...new Set(modules)] };
+}
+
 async function analyzeMessage(env: WorkerEnv, spec: ProjectSpec, message: string, modules: string[]) {
   if (!env.DEEPSEEK_API_KEY) {
     return {
@@ -513,12 +605,16 @@ async function saveVersion(
        VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
     ).bind(uid(), project.id, version, JSON.stringify(spec), reason, JSON.stringify(modules), timestamp()),
     env.DB.prepare(
-      "UPDATE projects SET current_spec_version = ?, updated_at = ? WHERE id = ?",
-    ).bind(version, timestamp(), project.id),
+      "UPDATE projects SET current_spec_version = ?, status = ?, updated_at = ? WHERE id = ?",
+    ).bind(version, spec.project.status, timestamp(), project.id),
     env.DB.prepare(
       "UPDATE artifacts SET status = 'NEEDS_CONFIRMATION', updated_at = ? WHERE project_id = ?",
     ).bind(timestamp(), project.id),
   ]);
+  const requirementDrafts = generateArtifacts(spec, project.description, version).filter(
+    (draft) => draft.path.startsWith("01_requirements/"),
+  );
+  await upsertArtifacts(env, project.id, version, requirementDrafts);
   return version;
 }
 
@@ -803,6 +899,23 @@ export async function handleApi(
         payload.affected_modules || ["ProjectSpec"],
       );
       return jsonResponse({ version, affected_modules: payload.affected_modules || ["ProjectSpec"] });
+    }
+    if (
+      parts[3] === "spec" && parts[4] === "confirmations"
+      && parts.length === 5 && method === "POST"
+    ) {
+      const payload = await readBody<RequirementConfirmation>(request);
+      const spec = await getSpec(env, owner, projectId);
+      const confirmation = applyRequirementConfirmation(spec, payload);
+      const version = await saveVersion(
+        env, project, confirmation.updated, confirmation.reason, confirmation.modules,
+      );
+      return jsonResponse({
+        version,
+        reason: confirmation.reason,
+        affected_modules: confirmation.modules,
+        requirement_status: confirmation.updated.verification.requirement_status,
+      });
     }
     if (parts[3] === "spec" && parts[4] === "versions" && parts.length === 5 && method === "GET") {
       const rows = await all<{

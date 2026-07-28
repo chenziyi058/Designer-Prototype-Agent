@@ -212,7 +212,18 @@ def generate_workspace(spec: ProjectSpec, root: Path, original_description: str)
     save_json("01_requirements/project-spec.json", spec_dict)
     save("01_requirements/project-spec.yaml", yaml.safe_dump(spec_dict, allow_unicode=True, sort_keys=False))
     save("01_requirements/assumptions.md", "# 假设\n\n" + "\n".join(f"- {x.value}（{x.source}）" for x in spec.assumptions))
-    save("01_requirements/open-questions.md", "# 待确认问题\n\n" + "\n".join(f"- {x.value}" for x in spec.open_questions))
+    confirmation_lines = [
+        (
+            f"- [x] {item.value}\n  - {item.notes or '用户已确认'}"
+            if item.verification_status == VerificationStatus.USER_CONFIRMED
+            else f"- [ ] {item.value}"
+        )
+        for item in spec.open_questions
+    ]
+    save(
+        "01_requirements/open-questions.md",
+        "# 需求确认记录\n\n" + ("\n".join(confirmation_lines) or "- 无"),
+    )
     save("02_architecture/functional-architecture.md", "# 功能架构\n\n" + "\n".join(f"- {x}" for x in spec.system.functional_modules.value))
     save("02_architecture/system-flow.md", "# 系统输入—处理—输出\n\n输入 → 主控采集与状态机 → 串口与反馈输出\n")
     save("02_architecture/data-flow.md", "# 数据流\n\n" + "\n".join(f"- {x}" for x in spec.system.data_flow.value))

@@ -22,3 +22,13 @@ test("starter preview markers are removed", async () => {
   assert.match(layout, /智能产品原型工程师/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
+
+test("requirements can be explicitly confirmed and dropdowns are controlled", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /确认并创建新版本/);
+  assert.match(page, /确认回答/);
+  assert.match(page, /spec\/confirmations/);
+  assert.match(page, /aria-haspopup="listbox"/);
+  assert.doesNotMatch(page, /<select/);
+  assert.doesNotMatch(page, /<details/);
+});

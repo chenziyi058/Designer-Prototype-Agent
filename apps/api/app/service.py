@@ -10,6 +10,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -79,6 +80,7 @@ class ProjectService:
         current = self.current_spec_record(project_id)
         current.is_current = False
         project.current_spec_version += 1
+        project.status = str(spec.project.status)
         record = ProjectSpecRecord(
             project_id=project_id, version=project.current_spec_version,
             content=spec.model_dump(mode="json"), reason=reason,
@@ -89,7 +91,53 @@ class ProjectService:
             GeneratedArtifact.project_id == project_id
         ).update({"status": "NEEDS_CONFIRMATION"})
         self.db.commit()
+        self._sync_requirement_artifacts(project, spec)
         return record
+
+    def _sync_requirement_artifacts(self, project: Project, spec: ProjectSpec) -> None:
+        workspace = settings.projects_root / _slug(spec.project.name.value)
+        spec_dict = spec.model_dump(mode="json")
+        confirmations = "\n".join(
+            (
+                f"- [x] {item.value}\n  - {item.notes or '用户已确认'}"
+                if item.verification_status == "USER_CONFIRMED"
+                else f"- [ ] {item.value}"
+            )
+            for item in spec.open_questions
+        ) or "- 无"
+        contents = {
+            "01_requirements/project-spec.json": json.dumps(
+                spec_dict, ensure_ascii=False, indent=2
+            ),
+            "01_requirements/project-spec.yaml": yaml.safe_dump(
+                spec_dict, allow_unicode=True, sort_keys=False
+            ),
+            "01_requirements/assumptions.md": "# 假设\n\n" + "\n".join(
+                f"- {item.value}（{item.source}）" for item in spec.assumptions
+            ),
+            "01_requirements/open-questions.md": (
+                "# 需求确认记录\n\n" + confirmations
+            ),
+        }
+        for relative_path, content in contents.items():
+            path = workspace / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            artifact = self.db.scalar(select(GeneratedArtifact).where(
+                GeneratedArtifact.project_id == project.id,
+                GeneratedArtifact.relative_path == relative_path,
+            ))
+            if artifact is None:
+                artifact = GeneratedArtifact(
+                    project_id=project.id,
+                    kind=path.suffix.lstrip(".") or "file",
+                    relative_path=relative_path,
+                )
+                self.db.add(artifact)
+            artifact.status = "GENERATED"
+            artifact.source_spec_version = project.current_spec_version
+            artifact.checksum = hashlib.sha256(content.encode()).hexdigest()
+        self.db.commit()
 
     def restore_spec(self, project_id: str, version: int) -> ProjectSpecRecord:
         source = self.db.scalar(select(ProjectSpecRecord).where(

@@ -1,13 +1,13 @@
 "use client";
 
 import {
-  AlertTriangle, ArrowRight, Bot, Box, Check, ChevronRight, CircleDollarSign,
+  AlertTriangle, ArrowRight, Bot, Box, Check, ChevronDown, ChevronRight, CircleDollarSign,
   Clipboard, ClipboardCheck, Code2, Cpu, Download, FileCode2, FileText,
   FolderOpen, GitBranch, Home, Layers3, LoaderCircle, Menu, PackageSearch,
   Plus, Send, Settings2, ShieldCheck, Sparkles, TestTube2,
   Unplug, X,
 } from "lucide-react";
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Tone = "done" | "active" | "waiting" | "neutral" | "danger";
 type Traced<T> = {
@@ -196,6 +196,64 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`status ${tone}`}>{children}</span>;
+}
+
+function Dropdown({
+  label, value, options, onChange, disabled = false,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+
+  return <div className={`dropdown ${open ? "open" : ""}`} ref={root}>
+    <button
+      type="button"
+      className="dropdown-trigger"
+      aria-label={label}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      disabled={disabled}
+      onClick={() => setOpen((current) => !current)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setOpen(false);
+        if (event.key === "ArrowDown") setOpen(true);
+      }}
+    >
+      <span>{selected?.label ?? "请选择"}</span>
+      <ChevronDown size={15} aria-hidden="true" />
+    </button>
+    {open && <div className="dropdown-menu" role="listbox" aria-label={`${label}选项`}>
+      {options.map((option) => <button
+        type="button"
+        role="option"
+        aria-selected={option.value === value}
+        className={option.value === value ? "selected" : ""}
+        key={option.value}
+        onClick={() => {
+          onChange(option.value);
+          setOpen(false);
+        }}
+      >
+        <span>{option.label}</span>
+        {option.value === value && <Check size={14} />}
+      </button>)}
+    </div>}
+  </div>;
 }
 
 export default function HomePage() {
@@ -425,6 +483,30 @@ export default function HomePage() {
     }
   }
 
+  async function confirmRequirement(payload: {
+    field?: string;
+    value?: string | number;
+    question_index?: number;
+    answer?: string;
+  }) {
+    if (!project || busy) return;
+    setBusy(payload.field ? "正在确认需求字段并创建新版本" : "正在记录回答并创建新版本");
+    setError("");
+    try {
+      await request(`/api/projects/${project.id}/spec/confirmations`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      await refreshCurrent();
+      setActive("需求");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "需求确认失败");
+      throw reason;
+    } finally {
+      setBusy("");
+    }
+  }
+
   function exportProject() {
     if (project) window.location.assign(`${API_URL}/api/projects/${project.id}/export`);
   }
@@ -457,17 +539,17 @@ export default function HomePage() {
           <div className="project-switcher">
             <span>{project?.name.slice(0, 1) ?? "项"}</span>
             <div>
-              <select
-                aria-label="选择项目"
+              <Dropdown
+                label="选择项目"
                 value={project?.id ?? ""}
-                onChange={(event) => void loadProject(event.target.value)}
-              >
-                {!project && <option value="">尚未创建项目</option>}
-                {projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
-              </select>
+                options={projects.length
+                  ? projects.map((item) => ({ value: item.id, label: item.name }))
+                  : [{ value: "", label: "尚未创建项目" }]}
+                disabled={projects.length === 0}
+                onChange={(value) => void loadProject(value)}
+              />
               <small>{project ? `ProjectSpec v${project.current_spec_version}` : "请创建项目"}</small>
             </div>
-            <ChevronRight size={15} />
           </div>
           <nav>{nav.map(([label, Icon]) => (
             <button
@@ -513,6 +595,7 @@ export default function HomePage() {
               spec={active === "需求" ? spec : undefined}
               versions={active === "需求" ? versions : undefined}
               onRestore={restoreVersion}
+              onConfirm={confirmRequirement}
               disabled={Boolean(busy)}
             />
           )}
@@ -571,7 +654,9 @@ function Overview({
   setActive: (value: string) => void;
   exportProject: () => void;
 }) {
-  const questions = spec.open_questions ?? [];
+  const questions = (spec.open_questions ?? []).filter(
+    (item) => item.verification_status !== "USER_CONFIRMED",
+  );
   const latestValidations = validations.filter(
     (item, index) => validations.findIndex((entry) => entry.validator === item.validator) === index,
   );
@@ -638,7 +723,7 @@ function Fact({ label, traced }: { label: string; traced: Traced<unknown> }) {
 function ModuleView({
   title, description, artifacts, selected, preview, onOpen, onGenerate, onValidate,
   projectId, spec, disabled,
-  versions, onRestore,
+  versions, onRestore, onConfirm,
 }: {
   title: string;
   description: string;
@@ -652,6 +737,12 @@ function ModuleView({
   spec?: ProjectSpec;
   versions?: SpecVersion[];
   onRestore?: (version: number) => void;
+  onConfirm?: (payload: {
+    field?: string;
+    value?: string | number;
+    question_index?: number;
+    answer?: string;
+  }) => Promise<void>;
   disabled: boolean;
 }) {
   return <>
@@ -659,7 +750,13 @@ function ModuleView({
       {onValidate && <button className="button secondary" disabled={disabled} onClick={onValidate}><ClipboardCheck size={16} /> 执行验证</button>}
       {onGenerate && <button className="button primary" disabled={disabled} onClick={onGenerate}><Sparkles size={16} /> 使用 DeepSeek 生成</button>}
     </PageHead>
-    {spec && <SpecSummary spec={spec} versions={versions ?? []} onRestore={onRestore} disabled={disabled} />}
+    {spec && <SpecSummary
+      spec={spec}
+      versions={versions ?? []}
+      onRestore={onRestore}
+      onConfirm={onConfirm}
+      disabled={disabled}
+    />}
     <div className="artifact-layout">
       <section className="card file-list">
         <header><span><FolderOpen size={15} />工程文件</span><small>{artifacts.length} 项</small></header>
@@ -686,33 +783,118 @@ function ModuleView({
 }
 
 function SpecSummary({
-  spec, versions, onRestore, disabled,
+  spec, versions, onRestore, onConfirm, disabled,
 }: {
   spec: ProjectSpec;
   versions: SpecVersion[];
   onRestore?: (version: number) => void;
+  onConfirm?: (payload: {
+    field?: string;
+    value?: string | number;
+    question_index?: number;
+    answer?: string;
+  }) => Promise<void>;
   disabled: boolean;
 }) {
-  const cards: Array<[string, string, Traced<unknown>]> = [
-    ["产品目标", String(spec.project.product_goal.value), spec.project.product_goal],
-    ["目标用户", String(spec.user.target_user.value), spec.user.target_user],
-    ["使用环境", String(spec.scenario.usage_environment.value), spec.scenario.usage_environment],
-    ["主控偏好", String(spec.hardware.preferred_controller.value), spec.hardware.preferred_controller],
-    ["预算", spec.constraints.budget_cny.value ? `¥${spec.constraints.budget_cny.value}` : "待确认", spec.constraints.budget_cny],
-    ["原型等级", String(spec.project.prototype_level.value), spec.project.prototype_level],
+  const [editing, setEditing] = useState("");
+  const [fieldValue, setFieldValue] = useState("");
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const cards: Array<{
+    field: string;
+    label: string;
+    display: string;
+    value: string;
+    traced: Traced<unknown>;
+    type?: "number";
+  }> = [
+    { field: "project.product_goal", label: "产品目标", display: String(spec.project.product_goal.value), value: String(spec.project.product_goal.value), traced: spec.project.product_goal },
+    { field: "user.target_user", label: "目标用户", display: String(spec.user.target_user.value), value: String(spec.user.target_user.value), traced: spec.user.target_user },
+    { field: "scenario.usage_environment", label: "使用环境", display: String(spec.scenario.usage_environment.value), value: String(spec.scenario.usage_environment.value), traced: spec.scenario.usage_environment },
+    { field: "hardware.preferred_controller", label: "主控偏好", display: String(spec.hardware.preferred_controller.value), value: String(spec.hardware.preferred_controller.value), traced: spec.hardware.preferred_controller },
+    { field: "constraints.budget_cny", label: "预算", display: spec.constraints.budget_cny.value ? `¥${spec.constraints.budget_cny.value}` : "待确认", value: spec.constraints.budget_cny.value ? String(spec.constraints.budget_cny.value) : "", traced: spec.constraints.budget_cny, type: "number" },
+    { field: "project.prototype_level", label: "原型等级", display: String(spec.project.prototype_level.value), value: String(spec.project.prototype_level.value), traced: spec.project.prototype_level },
   ];
+  const questions = spec.open_questions.map((item, index) => ({ item, index }));
+  const pendingQuestions = questions.filter(({ item }) => item.verification_status !== "USER_CONFIRMED");
+  const resolvedQuestions = questions.filter(({ item }) => item.verification_status === "USER_CONFIRMED");
+
   return <>
-    <div className="spec-grid">{cards.map(([label, value, traced]) => (
-      <article className="trace-card" key={label}>
-        <div><small>{label}</small><Badge tone={statusTone(traced.verification_status)}>{statusText[traced.verification_status] ?? "待确认"}</Badge></div>
-        <strong>{value}</strong>
-        <p>来源：{traced.source} · 置信度 {Math.round(traced.confidence * 100)}%</p>
+    <section className="card confirmation-guide">
+      <ClipboardCheck size={18} />
+      <div>
+        <strong>如何确认需求</strong>
+        <p>字段有误可点“修改并确认”；澄清问题填写答案后点“确认回答”。每次操作都会创建新的 ProjectSpec 版本，并把受影响的派生文件标为待复核。</p>
+      </div>
+    </section>
+    <div className="spec-grid">{cards.map((card) => (
+      <article className="trace-card" key={card.field}>
+        <div><small>{card.label}</small><Badge tone={statusTone(card.traced.verification_status)}>{statusText[card.traced.verification_status] ?? "待确认"}</Badge></div>
+        {editing === card.field ? <div className="trace-editor">
+          <input
+            type={card.type === "number" ? "number" : "text"}
+            min={card.type === "number" ? "1" : undefined}
+            aria-label={`确认${card.label}`}
+            value={fieldValue}
+            onChange={(event) => setFieldValue(event.target.value)}
+          />
+          <div>
+            <button
+              type="button"
+              className="button primary compact"
+              disabled={disabled || !fieldValue.trim()}
+              onClick={async () => {
+                const value = card.type === "number" ? Number(fieldValue) : fieldValue.trim();
+                if (card.type === "number" && (!Number.isFinite(value) || Number(value) <= 0)) return;
+                try {
+                  await onConfirm?.({ field: card.field, value });
+                  setEditing("");
+                } catch { /* 全局错误条会展示后端错误 */ }
+              }}
+            >确认并创建新版本</button>
+            <button type="button" className="button secondary compact" onClick={() => setEditing("")}>取消</button>
+          </div>
+        </div> : <>
+          <strong>{card.display}</strong>
+          <p>来源：{card.traced.source} · 置信度 {Math.round(card.traced.confidence * 100)}%</p>
+          <button
+            type="button"
+            className="trace-edit"
+            disabled={disabled}
+            onClick={() => { setEditing(card.field); setFieldValue(card.value); }}
+          >{card.traced.verification_status === "USER_CONFIRMED" ? "修改已确认值" : "修改并确认"}</button>
+        </>}
       </article>
     ))}</div>
     <section className="card question-list">
-      <Title kicker="Open questions" title="关键待确认问题" extra={<Badge tone="waiting">{spec.open_questions.length} 项</Badge>} />
-      {spec.open_questions.map((item) => <div key={item.value}><AlertTriangle size={15} /><span>{item.value}</span></div>)}
-      {spec.open_questions.length === 0 && <p>当前没有关键待确认问题。</p>}
+      <Title kicker="Open questions" title="关键待确认问题" extra={<Badge tone={pendingQuestions.length ? "waiting" : "done"}>{pendingQuestions.length} 项</Badge>} />
+      {pendingQuestions.map(({ item, index }) => <div className="question-item" key={`${index}-${item.value}`}>
+        <AlertTriangle size={15} />
+        <div>
+          <strong>{item.value}</strong>
+          <textarea
+            aria-label={`回答问题：${item.value}`}
+            placeholder="填写已经确认的事实、规格或约束；不确定时请保留待确认。"
+            value={answers[index] ?? ""}
+            onChange={(event) => setAnswers((current) => ({ ...current, [index]: event.target.value }))}
+          />
+          <button
+            type="button"
+            className="button primary compact"
+            disabled={disabled || !(answers[index] ?? "").trim()}
+            onClick={async () => {
+              try {
+                await onConfirm?.({ question_index: index, answer: answers[index].trim() });
+                setAnswers((current) => ({ ...current, [index]: "" }));
+              } catch { /* 全局错误条会展示后端错误 */ }
+            }}
+          ><Check size={14} /> 确认回答</button>
+        </div>
+      </div>)}
+      {pendingQuestions.length === 0 && <p className="question-complete"><Check size={15} />关键问题均已确认，可以继续生成和验证工程资产。</p>}
+      {resolvedQuestions.length > 0 && <div className="resolved-list">
+        <small>已确认记录</small>
+        {resolvedQuestions.map(({ item, index }) => <p key={`${index}-${item.value}`}><Check size={13} /><span><strong>{item.value}</strong>{item.notes?.replace(/^用户回答：/, "")}</span></p>)}
+      </div>}
     </section>
     <section className="card version-list">
       <Title kicker="Version history" title="ProjectSpec 版本" extra={<small>{versions.length} 个版本</small>} />
@@ -751,25 +933,50 @@ function ValidationView({
         <Title kicker="Validation" title="工程验证" extra={<small>{validations.length} 次</small>} />
         {validations.length === 0 && <p className="muted-empty">尚未执行验证。请在硬件、协议或代码页面运行对应检查。</p>}
         {validations.map((item) => (
-          <details key={item.id}>
-            <summary><div><strong>{item.validator}</strong><small>{new Date(item.created_at).toLocaleString("zh-CN")}</small></div><Badge tone={statusTone(item.status)}>{statusText[item.status] ?? item.status}</Badge></summary>
-            <pre>{JSON.stringify(item.report, null, 2)}</pre>
-          </details>
+          <Disclosure
+            key={item.id}
+            label={item.validator}
+            meta={new Date(item.created_at).toLocaleString("zh-CN")}
+            badge={<Badge tone={statusTone(item.status)}>{statusText[item.status] ?? item.status}</Badge>}
+          ><pre>{JSON.stringify(item.report, null, 2)}</pre></Disclosure>
         ))}
       </section>
       <section className="card audit-list">
         <Title kicker="Agent runs" title="Agent 运行记录" extra={<small>{runs.length} 次</small>} />
         {runs.length === 0 && <p className="muted-empty">还没有 Agent 运行记录。</p>}
         {runs.map((run) => (
-          <details key={run.id}>
-            <summary><div><strong>{run.task_name}</strong><small>{run.provider} · {run.model || run.skill}</small></div><Badge tone={run.error ? "danger" : run.requires_confirmation ? "waiting" : "done"}>{run.error ? "失败" : run.requires_confirmation ? "待确认" : "完成"}</Badge></summary>
+          <Disclosure
+            key={run.id}
+            label={run.task_name}
+            meta={`${run.provider} · ${run.model || run.skill}`}
+            badge={<Badge tone={run.error ? "danger" : run.requires_confirmation ? "waiting" : "done"}>{run.error ? "失败" : run.requires_confirmation ? "待确认" : "完成"}</Badge>}
+          >
             <p>{run.error || run.result_summary || "任务已完成"}</p>
             <small>Token：{run.token_usage.total_tokens ?? 0} · 文件：{run.generated_files.length}</small>
-          </details>
+          </Disclosure>
         ))}
       </section>
     </div>
   </>;
+}
+
+function Disclosure({
+  label, meta, badge, children,
+}: {
+  label: string;
+  meta: string;
+  badge: ReactNode;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return <div className={`disclosure ${open ? "open" : ""}`}>
+    <button type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+      <ChevronDown size={15} aria-hidden="true" />
+      <span><strong>{label}</strong><small>{meta}</small></span>
+      {badge}
+    </button>
+    {open && <div className="disclosure-body">{children}</div>}
+  </div>;
 }
 
 function PageHead({ title, kicker, description, children }: { title: string; kicker: string; description: string; children?: ReactNode }) {
@@ -779,7 +986,7 @@ function Title({ kicker, title, extra }: { kicker: string; title: string; extra:
   return <div className="title-row"><div><span className="kicker">{kicker}</span><h2>{title}</h2></div>{extra}</div>;
 }
 function Metric({ icon, tone, label, value }: { icon: ReactNode; tone: string; label: string; value: string }) {
-  return <article className="metric"><span className={tone}>{icon}</span><div><small>{label}</small><strong title={value}>{value}</strong></div><ChevronRight size={17} /></article>;
+  return <article className="metric"><span className={tone}>{icon}</span><div><small>{label}</small><strong title={value}>{value}</strong></div></article>;
 }
 function Risk({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return <div className="risk">{icon}<div><strong>{title}</strong><small>{text}</small></div></div>;
@@ -877,7 +1084,12 @@ function CreateModal({ close, onCreate }: { close: () => void; onCreate: (data: 
       {step === 3 && <>
         <span className="field-label">主控偏好</span>
         <div className="choices">{["由 Agent 推荐", "ESP32-S3", "Arduino", "树莓派"].map((value) => <button type="button" className={controller === value ? "picked" : ""} onClick={() => setController(value)} key={value}><Cpu size={18} />{value}{controller === value && <Check size={15} />}</button>)}</div>
-        <div className="field-row modal-row"><label className="field"><span>通信偏好</span><select value={communication} onChange={(event) => setCommunication(event.target.value)}><option>USB 串口</option><option>Wi-Fi</option><option>BLE</option></select></label></div>
+        <div className="field-row modal-row"><div className="field"><span>通信偏好</span><Dropdown
+          label="通信偏好"
+          value={communication}
+          options={["USB 串口", "Wi-Fi", "BLE"].map((value) => ({ value, label: value }))}
+          onChange={setCommunication}
+        /></div></div>
         <div className="toggles">
           <label>需要 Python 数据采集<input type="checkbox" checked={dataCollection} onChange={(event) => setDataCollection(event.target.checked)} /></label>
           <label>需要基础机器学习<input type="checkbox" checked={machineLearning} onChange={(event) => setMachineLearning(event.target.checked)} /></label>
@@ -888,7 +1100,12 @@ function CreateModal({ close, onCreate }: { close: () => void; onCreate: (data: 
         <div className="field-row"><Field label="预算（人民币）" placeholder="1500" value={budget} onChange={setBudget} /><Field label="开发经验" placeholder="初学者" value={experience} onChange={setExperience} /></div>
         <Field label="已有硬件（逗号分隔）" placeholder="ESP32-S3 开发板、编码器" value={existing} onChange={setExisting} />
         <div className="field-row"><Field label="尺寸限制" placeholder="待确认" value={size} onChange={setSize} /><Field label="供电限制" placeholder="USB 5V" value={power} onChange={setPower} /></div>
-        <label className="field"><span>期望原型完成度</span><select value={prototypeLevel} onChange={(event) => setPrototypeLevel(event.target.value)}><option>概念验证</option><option>功能原型</option><option>外观与功能联合原型</option></select></label>
+        <div className="field"><span>期望原型完成度</span><Dropdown
+          label="期望原型完成度"
+          value={prototypeLevel}
+          options={["概念验证", "功能原型", "外观与功能联合原型"].map((value) => ({ value, label: value }))}
+          onChange={setPrototypeLevel}
+        /></div>
         <label className="check"><input type="checkbox" checked={avoidPcb} onChange={(event) => setAvoidPcb(event.target.checked)} /> 第一版避免定制 PCB</label>
       </>}
       {step === 5 && <div className="confirm"><span><Check size={22} /></span><h3>准备创建 ProjectSpec</h3><p>{name} · {controller} · {communication} · 预算 {budget ? `¥${budget}` : "待确认"}。创建后 DeepSeek 将解析需求，所有未知工程参数继续标记为待确认。</p><div><em><Check size={14} />结构化需求</em><em><Check size={14} />来源标记</em><em><Check size={14} />关键澄清问题</em></div></div>}

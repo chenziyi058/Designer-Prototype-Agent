@@ -11,7 +11,10 @@ from .generator import affected_modules
 from .models import AgentRun, GeneratedArtifact, ProjectSpecRecord
 from .orchestrator import PrototypeEngineerOrchestrator
 from .providers import ProviderError, get_provider
-from .schemas import MessageCreate, ProjectCreate, ProjectSpec
+from .schemas import (
+    MessageCreate, ProjectCreate, ProjectSpec, Source, TextValue,
+    VerificationStatus,
+)
 from .service import ProjectService
 
 Base.metadata.create_all(engine)
@@ -145,6 +148,109 @@ def update_spec(project_id: str, payload: dict, svc: ProjectService = Depends(se
         return {"version": record.version, "affected_modules": record.affected_modules}
     except (KeyError, ValueError) as error:
         raise HTTPException(422, f"ProjectSpec 无效: {error}") from error
+
+
+def confirmed_text(value: str, label: str) -> TextValue:
+    return TextValue(
+        value=value, source=Source.USER, confidence=1,
+        verification_status=VerificationStatus.USER_CONFIRMED,
+        notes=f"来自需求页确认：{label}",
+    )
+
+
+@app.post("/api/projects/{project_id}/spec/confirmations")
+def confirm_requirement(
+    project_id: str, payload: dict, svc: ProjectService = Depends(service)
+) -> dict:
+    spec = svc.spec(project_id)
+    field = payload.get("field")
+    modules: list[str]
+    reason: str
+    if field:
+        raw_value = payload.get("value")
+        text = raw_value.strip() if isinstance(raw_value, str) else ""
+        if field == "project.product_goal" and text:
+            spec.project.product_goal = confirmed_text(text, "产品目标")
+            modules = ["ProjectSpec", "系统架构", "测试", "文档"]
+            reason = "确认需求字段：产品目标"
+        elif field == "user.target_user" and text:
+            spec.user.target_user = confirmed_text(text, "目标用户")
+            modules = ["ProjectSpec", "系统架构", "控制界面", "测试", "文档"]
+            reason = "确认需求字段：目标用户"
+        elif field == "scenario.usage_environment" and text:
+            spec.scenario.usage_environment = confirmed_text(text, "使用环境")
+            modules = ["ProjectSpec", "系统架构", "硬件选型", "测试", "文档"]
+            reason = "确认需求字段：使用环境"
+        elif field == "hardware.preferred_controller" and text:
+            spec.hardware.preferred_controller = confirmed_text(text, "主控偏好")
+            if spec.hardware.controllers:
+                controller = spec.hardware.controllers[0]
+                controller.model = confirmed_text(text, "主控偏好")
+                controller.pins = {}
+                controller.operating_voltage.value = None
+                controller.logic_voltage.value = None
+                controller.max_current_ma.value = None
+            modules = affected_modules(f"主控 {text}")
+            reason = "确认需求字段：主控偏好"
+        elif field == "constraints.budget_cny":
+            try:
+                budget = float(raw_value)
+            except (TypeError, ValueError) as error:
+                raise HTTPException(422, "预算必须是大于零的数字") from error
+            if budget <= 0:
+                raise HTTPException(422, "预算必须是大于零的数字")
+            spec.constraints.budget_cny.value = budget
+            spec.constraints.budget_cny.source = Source.USER
+            spec.constraints.budget_cny.confidence = 1
+            spec.constraints.budget_cny.verification_status = VerificationStatus.USER_CONFIRMED
+            spec.constraints.budget_cny.notes = "来自需求页确认：预算"
+            modules = affected_modules(f"预算 {budget} 元")
+            reason = "确认需求字段：预算"
+        elif field == "project.prototype_level" and text:
+            spec.project.prototype_level = confirmed_text(text, "原型等级")
+            modules = [
+                "ProjectSpec", "系统架构", "硬件选型", "固件", "Python",
+                "控制界面", "测试", "文档",
+            ]
+            reason = "确认需求字段：原型等级"
+        else:
+            raise HTTPException(422, "不支持确认该需求字段，或确认值为空")
+    elif isinstance(payload.get("question_index"), int):
+        index = payload["question_index"]
+        answer = str(payload.get("answer", "")).strip()
+        if not answer:
+            raise HTTPException(422, "确认回答不能为空")
+        if index < 0 or index >= len(spec.open_questions):
+            raise HTTPException(404, "待确认问题不存在")
+        question = spec.open_questions[index]
+        if question.verification_status == VerificationStatus.USER_CONFIRMED:
+            raise HTTPException(409, "该问题已经确认")
+        question.source = Source.USER
+        question.confidence = 1
+        question.verification_status = VerificationStatus.USER_CONFIRMED
+        question.notes = f"用户回答：{answer}"
+        modules = affected_modules(f"{question.value} {answer}")
+        reason = f"确认需求问题：{question.value[:80]}"
+    else:
+        raise HTTPException(422, "必须指定待确认字段或问题")
+
+    has_pending = any(
+        item.verification_status != VerificationStatus.USER_CONFIRMED
+        for item in spec.open_questions
+    )
+    status = (
+        VerificationStatus.NEEDS_CONFIRMATION
+        if has_pending else VerificationStatus.SPEC_VERIFIED
+    )
+    spec.project.status = status
+    spec.verification.requirement_status = status
+    record = svc.update_spec(project_id, spec, reason, list(dict.fromkeys(modules)))
+    return {
+        "version": record.version,
+        "reason": reason,
+        "affected_modules": record.affected_modules,
+        "requirement_status": status,
+    }
 
 
 @app.get("/api/projects/{project_id}/spec/versions")

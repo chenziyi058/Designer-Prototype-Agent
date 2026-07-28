@@ -64,3 +64,38 @@ def test_spec_version_update(client):
     })
     assert response.status_code == 200
     assert response.json()["version"] == 2
+
+
+def test_requirement_confirmation_creates_audited_versions(client):
+    project_id = create_project(client)["id"]
+
+    field = client.post(
+        f"/api/projects/{project_id}/spec/confirmations",
+        json={"field": "constraints.budget_cny", "value": 960},
+    )
+    assert field.status_code == 200, field.text
+    assert field.json()["version"] == 2
+    spec = client.get(f"/api/projects/{project_id}/spec").json()
+    assert spec["constraints"]["budget_cny"]["value"] == 960
+    assert spec["constraints"]["budget_cny"]["source"] == "user_provided"
+    assert spec["constraints"]["budget_cny"]["verification_status"] == "USER_CONFIRMED"
+
+    question = client.post(
+        f"/api/projects/{project_id}/spec/confirmations",
+        json={"question_index": 0, "answer": "使用低压桌面执行器，具体型号仍需查看数据手册"},
+    )
+    assert question.status_code == 200, question.text
+    assert question.json()["version"] == 3
+    spec = client.get(f"/api/projects/{project_id}/spec").json()
+    assert spec["open_questions"][0]["verification_status"] == "USER_CONFIRMED"
+    assert "具体型号仍需查看数据手册" in spec["open_questions"][0]["notes"]
+
+    versions = client.get(f"/api/projects/{project_id}/spec/versions").json()
+    assert versions[0]["reason"].startswith("确认需求问题")
+    assert versions[1]["reason"] == "确认需求字段：预算"
+
+    invalid = client.post(
+        f"/api/projects/{project_id}/spec/confirmations",
+        json={"field": "hardware.unknown", "value": "invented"},
+    )
+    assert invalid.status_code == 422

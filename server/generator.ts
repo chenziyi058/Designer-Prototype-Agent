@@ -263,7 +263,14 @@ export function generateArtifacts(
     { path: "01_requirements/project-spec.json", content: json(spec) },
     { path: "01_requirements/project-spec.yaml", content: `# JSON 是 YAML 1.2 的有效子集\n${json(spec)}\n` },
     { path: "01_requirements/assumptions.md", content: `# 假设\n\n${spec.assumptions.map((item) => `- ${item.value}（${item.source}）`).join("\n") || "- 无"}\n` },
-    { path: "01_requirements/open-questions.md", content: `# 待确认问题\n\n${spec.open_questions.map((item) => `- ${item.value}`).join("\n") || "- 无"}\n` },
+    {
+      path: "01_requirements/open-questions.md",
+      content: `# 需求确认记录\n\n${spec.open_questions.map((item) =>
+        item.verification_status === "USER_CONFIRMED"
+          ? `- [x] ${item.value}\n  - ${item.notes || "用户已确认"}`
+          : `- [ ] ${item.value}`
+      ).join("\n") || "- 无"}\n`,
+    },
     { path: "02_architecture/functional-architecture.md", content: header(specVersion) + `# 功能架构\n\n${spec.system.functional_modules.value.map((item) => `- ${item}`).join("\n") || "- 待确认"}\n` },
     { path: "02_architecture/system-flow.md", content: header(specVersion) + "# 系统输入—处理—输出\n\n用户输入／传感器 → 主控状态机 → 反馈输出／通信日志\n" },
     { path: "02_architecture/data-flow.md", content: header(specVersion) + `# 数据流\n\n${spec.system.data_flow.value.map((item) => `- ${item}`).join("\n") || "- 待确认"}\n` },
