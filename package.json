@@ -7,15 +7,22 @@
   },
   "scripts": {
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
-    "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
+    "dev:vercel": "DEPLOYMENT_PLATFORM=vercel vite --config vite.vercel.config.ts",
+    "build": "pnpm build:cloudflare",
+    "build:cloudflare": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
+    "build:vercel": "DEPLOYMENT_PLATFORM=vercel NITRO_PRESET=vercel vite build --config vite.vercel.config.ts",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "node --test tests/rendered-html.test.mjs",
+    "test": "node --test tests/*.test.mjs",
     "test:all": "pnpm test && pnpm test:api",
     "test:api": "python3 -m pytest apps/api/tests",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:generate:postgres": "drizzle-kit generate --config drizzle.postgres.config.ts",
+    "db:migrate:postgres": "drizzle-kit migrate --config drizzle.postgres.config.ts",
+    "db:init:postgres": "pnpm db:migrate:postgres"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^0.468.0",
     "next": "16.2.6",
@@ -26,6 +33,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "^4.20260515.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
@@ -35,6 +43,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "nitro": "3.0.260610-beta",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",

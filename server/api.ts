@@ -12,8 +12,9 @@ import type {
   RequirementChange,
   RequirementExtraction,
   Traced,
-  WorkerEnv,
 } from "./types";
+import { ModelProviderError } from "./runtime/model-provider";
+import type { RuntimeEnvironment } from "./runtime/types";
 import { createZip } from "./zip";
 
 type Json = Record<string, unknown>;
@@ -48,8 +49,6 @@ ProjectSpec 是唯一需求事实来源。你可以解释、推理和提出候�
 或“需要用户实物测试”。不要输出内部思维过程，只输出结论、证据来源、风险和下一步。涉及真实硬件时必须
 保留人工接线检查、合适驱动器、限流和急停提醒。`;
 
-let schemaReady = false;
-
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -71,54 +70,6 @@ function jsonResponse(value: unknown, status = 200, headers?: HeadersInit) {
   });
 }
 
-async function ensureSchema(env: WorkerEnv) {
-  if (schemaReady) return;
-  if (!env.DB) throw new ApiError(503, "站点数据库尚未配置");
-  const statements = [
-    `CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY, owner TEXT NOT NULL, slug TEXT NOT NULL, name TEXT NOT NULL,
-      description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'DRAFT',
-      current_stage TEXT NOT NULL DEFAULT 'requirements', current_spec_version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    )`,
-    "CREATE UNIQUE INDEX IF NOT EXISTS projects_owner_slug_idx ON projects(owner, slug)",
-    `CREATE TABLE IF NOT EXISTS project_versions (
-      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, version INTEGER NOT NULL, content TEXT NOT NULL,
-      reason TEXT NOT NULL, affected_modules TEXT NOT NULL, is_current INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL
-    )`,
-    "CREATE UNIQUE INDEX IF NOT EXISTS project_versions_project_version_idx ON project_versions(project_id, version)",
-    `CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
-      metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS agent_runs (
-      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_name TEXT NOT NULL, provider TEXT NOT NULL,
-      model_name TEXT NOT NULL, skill_name TEXT NOT NULL, input_summary TEXT NOT NULL,
-      result_summary TEXT NOT NULL, generated_files TEXT NOT NULL DEFAULT '[]', error TEXT,
-      token_usage TEXT NOT NULL DEFAULT '{}', requires_confirmation INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS artifacts (
-      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL,
-      content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'GENERATED',
-      source_spec_version INTEGER NOT NULL, checksum TEXT NOT NULL,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    )`,
-    "CREATE UNIQUE INDEX IF NOT EXISTS artifacts_project_path_idx ON artifacts(project_id, path)",
-    `CREATE TABLE IF NOT EXISTS validations (
-      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, validator TEXT NOT NULL, status TEXT NOT NULL,
-      report TEXT NOT NULL, created_at TEXT NOT NULL
-    )`,
-  ];
-  await env.DB.batch(statements.map((sql) => env.DB.prepare(sql)));
-  schemaReady = true;
-}
-
-function ownerFrom(request: Request) {
-  return request.headers.get("oai-authenticated-user-email") || "local-user";
-}
-
 function slugify(value: string, id: string) {
   const ascii = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return `${ascii || "prototype"}-${id.slice(0, 8)}`;
@@ -138,16 +89,28 @@ function projectView(row: ProjectRow) {
   };
 }
 
-async function all<T>(env: WorkerEnv, sql: string, bindings: unknown[] = []): Promise<T[]> {
-  const result = await env.DB.prepare(sql).bind(...bindings).all<T>();
+async function all<T>(
+  env: RuntimeEnvironment,
+  sql: string,
+  bindings: unknown[] = [],
+): Promise<T[]> {
+  const result = await env.database.prepare(sql).bind(...bindings).all<T>();
   return (result.results || []) as T[];
 }
 
-async function one<T>(env: WorkerEnv, sql: string, bindings: unknown[] = []): Promise<T | null> {
-  return await env.DB.prepare(sql).bind(...bindings).first<T>();
+async function one<T>(
+  env: RuntimeEnvironment,
+  sql: string,
+  bindings: unknown[] = [],
+): Promise<T | null> {
+  return await env.database.prepare(sql).bind(...bindings).first<T>();
 }
 
-async function getProject(env: WorkerEnv, owner: string, projectId: string) {
+async function getProject(
+  env: RuntimeEnvironment,
+  owner: string,
+  projectId: string,
+) {
   const row = await one<ProjectRow>(
     env,
     "SELECT * FROM projects WHERE id = ? AND owner = ?",
@@ -157,7 +120,11 @@ async function getProject(env: WorkerEnv, owner: string, projectId: string) {
   return row;
 }
 
-async function getSpec(env: WorkerEnv, owner: string, projectId: string): Promise<ProjectSpec> {
+async function getSpec(
+  env: RuntimeEnvironment,
+  owner: string,
+  projectId: string,
+): Promise<ProjectSpec> {
   await getProject(env, owner, projectId);
   const row = await one<{ content: string }>(
     env,
@@ -175,16 +142,27 @@ async function checksum(content: string) {
 }
 
 async function upsertArtifacts(
-  env: WorkerEnv,
+  env: RuntimeEnvironment,
   projectId: string,
   specVersion: number,
   drafts: ArtifactDraft[],
 ) {
+  const oversized = drafts.find(
+    (draft) =>
+      new TextEncoder().encode(draft.content).length >
+      env.assets.maxArtifactBytes,
+  );
+  if (oversized) {
+    throw new ApiError(
+      413,
+      `生成物 ${oversized.path} 超过托管数据库的单文件限制`,
+    );
+  }
   const createdAt = timestamp();
   const statements = await Promise.all(drafts.map(async (draft) => {
     const pathParts = draft.path.split(".");
     const kind = pathParts.length > 1 ? pathParts.at(-1)! : "file";
-    return env.DB.prepare(
+    return env.database.prepare(
       `INSERT INTO artifacts
        (id, project_id, kind, path, content, status, source_spec_version, checksum, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -197,11 +175,11 @@ async function upsertArtifacts(
       specVersion, await checksum(draft.content), createdAt, createdAt,
     );
   }));
-  if (statements.length) await env.DB.batch(statements);
+  if (statements.length) await env.database.batch(statements);
 }
 
 async function recordRun(
-  env: WorkerEnv,
+  env: RuntimeEnvironment,
   projectId: string,
   data: {
     task: string;
@@ -216,7 +194,7 @@ async function recordRun(
     requiresConfirmation?: boolean;
   },
 ) {
-  await env.DB.prepare(
+  await env.database.prepare(
     `INSERT INTO agent_runs
      (id, project_id, task_name, provider, model_name, skill_name, input_summary,
       result_summary, generated_files, error, token_usage, requires_confirmation, created_at)
@@ -228,73 +206,32 @@ async function recordRun(
   ).run();
 }
 
-function modelFor(env: WorkerEnv, role: "default" | "reasoning" | "coding") {
-  const fallback = env.DEEPSEEK_DEFAULT_MODEL || "deepseek-v4-flash";
-  if (role === "reasoning") return env.DEEPSEEK_REASONING_MODEL || fallback;
-  if (role === "coding") return env.DEEPSEEK_CODING_MODEL || fallback;
-  return fallback;
+function modelFor(
+  env: RuntimeEnvironment,
+  role: "default" | "reasoning" | "coding",
+) {
+  return env.model.modelFor(role);
 }
 
 async function deepSeek(
-  env: WorkerEnv,
+  env: RuntimeEnvironment,
   messages: Array<{ role: string; content: string }>,
   role: "default" | "reasoning" | "coding",
   jsonMode = false,
   maxTokens = 1200,
 ) {
-  if (!env.DEEPSEEK_API_KEY) throw new ApiError(503, "站点尚未配置 DeepSeek API Key");
-  const model = modelFor(env, role);
-  const retries = Math.max(0, Math.min(1, Number(env.MODEL_MAX_RETRIES || 1)));
-  let lastError = "未知错误";
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      const body: Json = {
-        model,
-        messages,
-        max_tokens: Math.max(32, Math.min(2000, maxTokens)),
-        thinking: role === "default" ? { type: "disabled" } : { type: "enabled" },
-      };
-      if (role === "default") body.temperature = Number(env.MODEL_TEMPERATURE || 0.2);
-      else body.reasoning_effort = env.DEEPSEEK_REASONING_EFFORT || "high";
-      if (jsonMode) body.response_format = { type: "json_object" };
-      const controller = new AbortController();
-      const timer = setTimeout(
-        () => controller.abort(),
-        Math.max(10, Math.min(30, Number(env.MODEL_TIMEOUT_SECONDS || 30))) * 1000,
-      );
-      const response = await fetch(
-        `${(env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "")}/chat/completions`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        },
-      );
-      clearTimeout(timer);
-      if (!response.ok) {
-        const detail = (await response.text()).slice(0, 500);
-        throw new Error(`HTTP ${response.status}: ${detail}`);
-      }
-      const result = await response.json() as {
-        model?: string;
-        choices: Array<{ message: { content: string } }>;
-        usage?: Json;
-      };
-      return {
-        content: result.choices[0]?.message?.content || "",
-        model: result.model || model,
-        usage: result.usage || {},
-      };
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+  try {
+    return await env.model.complete(messages, {
+      role,
+      jsonMode,
+      maxTokens,
+    });
+  } catch (error) {
+    if (error instanceof ModelProviderError) {
+      throw new ApiError(error.status, error.message);
     }
+    throw error;
   }
-  throw new ApiError(502, `DeepSeek 请求失败：${lastError}`);
 }
 
 function parseModelJson<T>(content: string): T {
@@ -327,7 +264,10 @@ function fallbackExtraction(input: ProjectCreateInput): RequirementExtraction {
   };
 }
 
-async function interpretRequirements(env: WorkerEnv, input: ProjectCreateInput) {
+async function interpretRequirements(
+  env: RuntimeEnvironment,
+  input: ProjectCreateInput,
+) {
   const prompt = `把以下纯文字产品概念解析为 JSON。只提取或合理推断产品层需求，不得填写未经数据手册验证的器件参数。
 只返回一个 JSON 对象，必须包含这些键：
 product_goal,target_user,usage_environment,usage_process,user_actions,system_inputs,system_outputs,
@@ -346,7 +286,7 @@ preferred_controller,assumptions,must_confirm_questions,safety_flags。
 已有硬件：${(input.existing_components || []).join("、") || "无"}
 尺寸限制：${input.size_constraints || "待确认"}
 供电限制：${input.power_constraints || "待确认"}`;
-  if (!env.DEEPSEEK_API_KEY) {
+  if (!env.model.configured) {
     return { extraction: fallbackExtraction(input), model: "deterministic-fallback", usage: {} };
   }
   let output;
@@ -418,8 +358,12 @@ function normalizeVerificationItem(value: string) {
     : value.trim().slice(0, 180);
 }
 
-async function recommendComponents(env: WorkerEnv, spec: ProjectSpec, question: string) {
-  if (!env.DEEPSEEK_API_KEY) {
+async function recommendComponents(
+  env: RuntimeEnvironment,
+  spec: ProjectSpec,
+  question: string,
+) {
+  if (!env.model.configured) {
     throw new ApiError(503, "站点尚未配置 DeepSeek，无法生成元件候选");
   }
   const prompt = `基于当前 ProjectSpec，为下面的待确认问题给出恰好 3 个元件或技术方案候选。
@@ -639,8 +583,13 @@ function applyRequirementConfirmation(spec: ProjectSpec, payload: RequirementCon
   return { updated, reason, modules: [...new Set(modules)] };
 }
 
-async function analyzeMessage(env: WorkerEnv, spec: ProjectSpec, message: string, modules: string[]) {
-  if (!env.DEEPSEEK_API_KEY) {
+async function analyzeMessage(
+  env: RuntimeEnvironment,
+  spec: ProjectSpec,
+  message: string,
+  modules: string[],
+) {
+  if (!env.model.configured) {
     return {
       change: {
         reply: `已分析该消息，预计影响：${modules.join("、")}。站点尚未配置 DeepSeek，因此没有自动修改 ProjectSpec。`,
@@ -695,24 +644,24 @@ resolved_open_questions,affected_modules,requires_confirmation。
 }
 
 async function saveVersion(
-  env: WorkerEnv,
+  env: RuntimeEnvironment,
   project: ProjectRow,
   spec: ProjectSpec,
   reason: string,
   modules: string[],
 ) {
   const version = project.current_spec_version + 1;
-  await env.DB.batch([
-    env.DB.prepare("UPDATE project_versions SET is_current = 0 WHERE project_id = ?").bind(project.id),
-    env.DB.prepare(
+  await env.database.batch([
+    env.database.prepare("UPDATE project_versions SET is_current = 0 WHERE project_id = ?").bind(project.id),
+    env.database.prepare(
       `INSERT INTO project_versions
        (id, project_id, version, content, reason, affected_modules, is_current, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
     ).bind(uid(), project.id, version, JSON.stringify(spec), reason, JSON.stringify(modules), timestamp()),
-    env.DB.prepare(
+    env.database.prepare(
       "UPDATE projects SET current_spec_version = ?, status = ?, updated_at = ? WHERE id = ?",
     ).bind(version, spec.project.status, timestamp(), project.id),
-    env.DB.prepare(
+    env.database.prepare(
       "UPDATE artifacts SET status = 'NEEDS_CONFIRMATION', updated_at = ? WHERE project_id = ?",
     ).bind(timestamp(), project.id),
   ]);
@@ -798,8 +747,12 @@ ${questions}
 `;
 }
 
-async function generateModuleAnalysis(env: WorkerEnv, spec: ProjectSpec, module: string) {
-  if (!env.DEEPSEEK_API_KEY) {
+async function generateModuleAnalysis(
+  env: RuntimeEnvironment,
+  spec: ProjectSpec,
+  module: string,
+) {
+  if (!env.model.configured) {
     return {
       content: `# ${module} 分析\n\n站点尚未配置 DeepSeek。确定性工程文件已经生成；模型分析暂不可用。\n`,
       model: "deterministic-fallback",
@@ -840,7 +793,10 @@ async function generateModuleAnalysis(env: WorkerEnv, spec: ProjectSpec, module:
   };
 }
 
-async function listArtifactRows(env: WorkerEnv, projectId: string) {
+async function listArtifactRows(
+  env: RuntimeEnvironment,
+  projectId: string,
+) {
   return await all<ArtifactRow>(
     env,
     "SELECT * FROM artifacts WHERE project_id = ? ORDER BY path",
@@ -870,35 +826,47 @@ function assertProjectInput(input: ProjectCreateInput) {
 
 export async function handleApi(
   request: Request,
-  env: WorkerEnv,
+  env: RuntimeEnvironment,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/")) return null;
   try {
-    await ensureSchema(env);
-    const owner = ownerFrom(request);
     const parts = url.pathname.split("/").filter(Boolean);
     const method = request.method.toUpperCase();
 
-    if (url.pathname === "/api/health" && method === "GET") {
+    if (
+      (url.pathname === "/api/health" ||
+        url.pathname === "/api/health/database") &&
+      method === "GET"
+    ) {
+      const database = await env.database.healthCheck();
+      if (url.pathname === "/api/health/database") {
+        return jsonResponse(
+          {
+            status: database.ok ? "ok" : "unavailable",
+            platform: env.deploymentPlatform,
+            database,
+          },
+          database.ok ? 200 : 503,
+        );
+      }
       return jsonResponse({
-        status: "ok",
-        provider: env.DEEPSEEK_API_KEY ? "deepseek" : "deterministic",
-        deepseek_configured: Boolean(env.DEEPSEEK_API_KEY),
-        models: env.DEEPSEEK_API_KEY ? {
+        status: database.ok ? "ok" : "degraded",
+        platform: env.deploymentPlatform,
+        provider: env.model.kind,
+        deepseek_configured: env.model.configured,
+        models: env.model.configured ? {
           default: modelFor(env, "default"),
           reasoning: modelFor(env, "reasoning"),
           coding: modelFor(env, "coding"),
         } : {},
+        database,
         capabilities: {
-          persistent_projects: true,
-          deepseek: Boolean(env.DEEPSEEK_API_KEY),
-          hosted_static_validation: true,
-          python_execution: false,
-          platformio_execution: false,
-          local_executor_available: false,
+          ...env.capabilities,
+          persistent_projects:
+            env.capabilities.persistent_projects && database.ok,
         },
-      });
+      }, database.ok ? 200 : 503);
     }
 
     if (url.pathname === "/api/agent/test" && method === "POST") {
@@ -914,6 +882,16 @@ export async function handleApi(
         response: output.content, usage: output.usage,
       });
     }
+
+    try {
+      await env.database.initialize();
+    } catch (error) {
+      throw new ApiError(
+        503,
+        error instanceof Error ? error.message : "数据库不可用",
+      );
+    }
+    const owner = env.resolveOwner(request);
 
     if (url.pathname === "/api/projects" && method === "GET") {
       const rows = await all<ProjectRow>(
@@ -932,13 +910,13 @@ export async function handleApi(
       const spec = createProjectSpec(id, input, interpreted.extraction);
       const createdAt = timestamp();
       const slug = slugify(input.name, id);
-      await env.DB.batch([
-        env.DB.prepare(
+      await env.database.batch([
+        env.database.prepare(
           `INSERT INTO projects
            (id, owner, slug, name, description, status, current_stage, current_spec_version, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, 'DRAFT', 'requirements', 1, ?, ?)`,
         ).bind(id, owner, slug, input.name.trim(), input.description.trim(), createdAt, createdAt),
-        env.DB.prepare(
+        env.database.prepare(
           `INSERT INTO project_versions
            (id, project_id, version, content, reason, affected_modules, is_current, created_at)
            VALUES (?, ?, 1, ?, '创建项目', ?, 1, ?)`,
@@ -986,7 +964,7 @@ export async function handleApi(
       const name = typeof patch.name === "string" ? patch.name.slice(0, 120) : project.name;
       const status = typeof patch.status === "string" ? patch.status : project.status;
       const stage = typeof patch.current_stage === "string" ? patch.current_stage : project.current_stage;
-      await env.DB.prepare(
+      await env.database.prepare(
         "UPDATE projects SET name = ?, status = ?, current_stage = ?, updated_at = ? WHERE id = ?",
       ).bind(name, status, stage, timestamp(), projectId).run();
       const updated = await getProject(env, owner, projectId);
@@ -1127,11 +1105,11 @@ export async function handleApi(
             : ""
       );
       const createdAt = timestamp();
-      await env.DB.batch([
-        env.DB.prepare(
+      await env.database.batch([
+        env.database.prepare(
           "INSERT INTO messages (id, project_id, role, content, metadata, created_at) VALUES (?, ?, 'user', ?, '{}', ?)",
         ).bind(uid(), projectId, payload.content, createdAt),
-        env.DB.prepare(
+        env.database.prepare(
           "INSERT INTO messages (id, project_id, role, content, metadata, created_at) VALUES (?, ?, 'assistant', ?, ?, ?)",
         ).bind(uid(), projectId, reply, JSON.stringify({
           affected_modules: modules, provider: providerForModel(analyzed.model), model: analyzed.model,
@@ -1182,7 +1160,7 @@ export async function handleApi(
         });
       } catch (error) {
         await recordRun(env, projectId, {
-          task: `生成 ${moduleName}`, provider: env.DEEPSEEK_API_KEY ? "deepseek" : "deterministic",
+          task: `生成 ${moduleName}`, provider: env.model.configured ? "deepseek" : "deterministic",
           model: modelFor(env, "default"),
           skill: `${moduleName} Generator`, input: `ProjectSpec v${project.current_spec_version}`,
           error: error instanceof Error ? error.message : String(error), requiresConfirmation: true,
@@ -1257,7 +1235,7 @@ export async function handleApi(
       } else {
         throw new ApiError(404, "不支持的验证目标");
       }
-      await env.DB.prepare(
+      await env.database.prepare(
         "INSERT INTO validations (id, project_id, validator, status, report, created_at) VALUES (?, ?, ?, ?, ?, ?)",
       ).bind(uid(), projectId, validator, status, JSON.stringify(report), timestamp()).run();
       return jsonResponse(report);
@@ -1277,6 +1255,19 @@ export async function handleApi(
 
     if (parts[3] === "export" && method === "GET") {
       const rows = await listArtifactRows(env, projectId);
+      const archiveInputBytes = rows.reduce(
+        (total, row) =>
+          total +
+          new TextEncoder().encode(row.path).length +
+          new TextEncoder().encode(row.content).length,
+        0,
+      );
+      if (archiveInputBytes > env.assets.maxArchiveBytes) {
+        throw new ApiError(
+          413,
+          "工程包超过当前托管运行时的内存 ZIP 限制；请改用对象存储导出",
+        );
+      }
       const archive = createZip(rows.map((row) => ({ name: row.path, content: row.content })));
       return new Response(archive.buffer as ArrayBuffer, {
         headers: {

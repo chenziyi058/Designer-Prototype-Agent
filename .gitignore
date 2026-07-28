@@ -17,6 +17,8 @@
 # Next.js / Vinext / Cloudflare build outputs
 /.next/
 /.vinext/
+/.output/
+/.nitro/
 /out/
 /dist/
 /.wrangler/

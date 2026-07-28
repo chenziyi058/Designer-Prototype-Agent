@@ -154,9 +154,12 @@ type Capabilities = {
   python_execution: boolean;
   platformio_execution: boolean;
   local_executor_available: boolean;
+  physical_hardware_execution: boolean;
 };
 
 const API_URL = "";
+const OWNER_STORAGE_KEY = "dpa-owner-id";
+const OWNER_COOKIE = "designer_prototype_owner";
 const nav = [
   ["项目概览", Home], ["需求", FileText], ["系统架构", GitBranch], ["硬件方案", Cpu],
   ["BOM", PackageSearch], ["接线", Unplug], ["通信协议", Layers3], ["固件代码", Code2],
@@ -190,12 +193,28 @@ const statusTone = (status: string): Tone => {
   return "neutral";
 };
 
+function browserOwnerId() {
+  if (typeof window === "undefined") return "";
+  let ownerId = localStorage.getItem(OWNER_STORAGE_KEY);
+  if (!ownerId) {
+    ownerId = crypto.randomUUID();
+    localStorage.setItem(OWNER_STORAGE_KEY, ownerId);
+  }
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${OWNER_COOKIE}=${encodeURIComponent(ownerId)}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+  return ownerId;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const ownerId = browserOwnerId();
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: init?.body
-      ? { "Content-Type": "application/json", ...(init.headers ?? {}) }
-      : init?.headers,
+    credentials: "same-origin",
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(ownerId ? { "X-Designer-Owner-Id": ownerId } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   const contentType = response.headers.get("content-type") ?? "";
   const result = contentType.includes("application/json")

@@ -2,12 +2,13 @@
 
 ## 1. 当前实现状态
 
-项目已经形成从需求创建、候选确认、版本管理、工程生成、验证记录到 ZIP 导出的可运行垂直流程。当前代码同时包含：
+项目已经形成从需求创建、候选确认、版本管理、工程生成、验证记录到 ZIP 导出的可运行垂直流程。当前代码包含：
 
 - 面向在线演示的 Vinext/React + Cloudflare Worker + D1 路径。
+- 面向 Vercel 的 Vinext/React + Nitro + PostgreSQL 路径。
 - 面向本机工程工具链的 FastAPI + SQLite + 文件工作区路径。
 
-两条路径不是完全相同的部署包。开发、部署和验收时需要先明确目标运行形态。
+两种托管目标共用 TypeScript 业务逻辑，但平台入口、数据库和构建产物不同。本地 FastAPI 不是托管函数的一部分。开发、部署和验收时需要先明确目标运行形态。
 
 ## 2. 环境与依赖
 
@@ -39,7 +40,17 @@ pip install platformio
 pnpm dev
 pnpm lint
 pnpm test
-pnpm build
+pnpm exec tsc --noEmit
+pnpm build:cloudflare
+pnpm build:vercel
+```
+
+Vercel 数据库命令：
+
+```bash
+pnpm db:generate:postgres
+pnpm db:migrate:postgres
+pnpm db:init:postgres
 ```
 
 ### FastAPI 与示例
@@ -65,6 +76,8 @@ pio run
 
 - `MODEL_PROVIDER=mock`：无密钥开发和界面演示。
 - `MODEL_PROVIDER=deepseek`：真实模型调用。
+- `DEPLOYMENT_PLATFORM=vercel`：选择 Vercel 构建/运行语义。
+- `DATABASE_URL`：Vercel 使用 pooled PostgreSQL URL；本地 FastAPI 可使用 SQLite URL。
 - `DEEPSEEK_API_KEY`：只允许写入本地 `.env` 或部署平台的加密环境变量。
 - 模型名、Base URL、超时、重试和温度必须来自配置，不能硬编码到业务逻辑。
 - 根目录和 `apps/api/.env` 均可被本地 API 加载；后者优先。

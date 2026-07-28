@@ -17,10 +17,19 @@ flowchart TB
         UI["React / Vinext 工作台"]
     end
 
-    subgraph Hosted["托管运行时"]
-        WAPI["Cloudflare Worker API"]
+    subgraph Hosted["共享托管业务层"]
         TSA["TypeScript Agent / Generator"]
-        D1["Cloudflare D1"]
+        RUNTIME["RuntimeEnvironment"]
+    end
+
+    subgraph Cloudflare["Cloudflare 目标"]
+        WAPI["Worker API"]
+        D1["D1"]
+    end
+
+    subgraph Vercel["Vercel 目标"]
+        NAPI["Nitro Node API"]
+        PG["Neon / Supabase PostgreSQL"]
     end
 
     subgraph Local["本地工程执行器"]
@@ -41,7 +50,11 @@ flowchart TB
 
     UI -->|同源 /api| WAPI
     WAPI --> TSA
-    TSA --> D1
+    UI -->|同源 /api| NAPI
+    NAPI --> TSA
+    TSA --> RUNTIME
+    RUNTIME --> D1
+    RUNTIME --> PG
 
     FAPI --> ORC
     ORC --> PROVIDER
@@ -56,7 +69,7 @@ flowchart TB
     TSA --> DS
 ```
 
-托管运行时服务在线工作台，使用 Worker API 与 D1。FastAPI 路径用于本地工程执行、SQLite 持久化和真实 Python/PlatformIO 工具链。二者是当前项目的两种部署形态，不应误认为同一进程内的前后端。
+托管运行时服务在线工作台。Cloudflare 使用 Worker 与 D1；Vercel 使用 Nitro Node Function 与 PostgreSQL。二者共用 `server/api.ts`，业务逻辑只依赖 `RuntimeEnvironment`、`DatabaseAdapter`、`ModelProvider`、`AssetStorageAdapter` 和 `ExecutionCapabilities`。FastAPI 路径用于本地工程执行、SQLite 持久化和真实 Python/PlatformIO 工具链，不在托管函数内运行。
 
 ## 3. 核心模块
 
@@ -66,7 +79,10 @@ flowchart TB
 | 托管 API | `server/api.ts` | 在线项目、版本、消息、生成、验证与导出接口 |
 | 托管生成器 | `server/generator.ts` | 确定性工程资产与校验结果生成 |
 | Worker 入口 | `worker/index.ts` | 将前端请求和 `/api` 路由到对应处理器 |
-| D1 数据层 | `db/`、`drizzle/` | 托管项目、版本、运行、资产和验证记录 |
+| Nitro 入口 | `nitro/server/routes/api/[...path].ts` | 将 Vercel `/api` 请求交给共享处理器 |
+| 运行时适配 | `server/runtime/` | 隔离平台数据库、模型、身份与能力边界 |
+| D1 数据层 | `db/schema.ts`、`drizzle/` | Cloudflare 项目、版本、运行、资产和验证记录 |
+| PostgreSQL 数据层 | `db/schema.postgres.ts`、`drizzle-postgres/` | Vercel 持久化与迁移 |
 | FastAPI | `apps/api/app/main.py` | 本地 API 路由与工程执行入口 |
 | Orchestrator | `apps/api/app/orchestrator.py` | 编排需求、架构、硬件、协议、代码和测试 Skill |
 | 模型抽象 | `apps/api/app/providers.py` | 隔离 DeepSeek 与 Mock Provider |

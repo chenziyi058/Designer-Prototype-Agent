@@ -2,17 +2,12 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { handleApi } from "../server/api";
-import type { WorkerEnv } from "../server/types";
+import {
+  createCloudflareRuntime,
+  type CloudflareBindings,
+} from "../server/runtime/cloudflare";
 
-interface Env extends WorkerEnv {
-  IMAGES: {
-    input(stream: ReadableStream): {
-      transform(options: Record<string, unknown>): {
-        output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
-      };
-    };
-  };
-}
+type Env = CloudflareBindings;
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -27,7 +22,10 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const apiResponse = await handleApi(request, env);
+    const apiResponse = await handleApi(
+      request,
+      createCloudflareRuntime(env),
+    );
     if (apiResponse) {
       return apiResponse;
     }

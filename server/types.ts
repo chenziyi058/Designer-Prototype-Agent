@@ -180,24 +180,3 @@ export type ArtifactDraft = {
   content: string;
   status?: VerificationStatus;
 };
-
-export interface WorkerEnv {
-  ASSETS: Fetcher;
-  DB: D1Database;
-  DEEPSEEK_API_KEY?: string;
-  DEEPSEEK_BASE_URL?: string;
-  DEEPSEEK_DEFAULT_MODEL?: string;
-  DEEPSEEK_REASONING_MODEL?: string;
-  DEEPSEEK_CODING_MODEL?: string;
-  DEEPSEEK_REASONING_EFFORT?: string;
-  MODEL_TIMEOUT_SECONDS?: string;
-  MODEL_MAX_RETRIES?: string;
-  MODEL_TEMPERATURE?: string;
-  IMAGES: {
-    input(stream: ReadableStream): {
-      transform(options: Record<string, unknown>): {
-        output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
-      };
-    };
-  };
-}

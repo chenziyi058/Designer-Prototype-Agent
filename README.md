@@ -53,19 +53,21 @@ flowchart LR
 
 详细设计见 [系统架构](docs/system_architecture.md) 与 [Agent 工作流程](docs/workflow.md)。
 
-## 两种运行形态
+## 三种运行形态
 
 | 形态 | 主要用途 | Web/API | 持久化 | 工程执行能力 |
 | --- | --- | --- | --- | --- |
-| 托管运行时 | 在线演示与多人访问基础 | Vinext/React + Cloudflare Worker API | Cloudflare D1 | 静态验证与工程包生成 |
+| Cloudflare 托管 | 在线演示 | Vinext + Worker API | Cloudflare D1 | 静态验证与工程包生成 |
+| Vercel 托管 | 在线演示与研究展示 | Vinext + Nitro Node API | Neon / Supabase PostgreSQL | 静态验证与工程包生成 |
 | 本地工程执行器 | 开发、研究与真实工具链验证 | FastAPI | SQLite + 项目目录 | Pytest、Python、PlatformIO |
 
-两条运行路径共享 `ProjectSpec` 设计原则，但当前分别维护 TypeScript 与 Python 实现。它们的边界、差异和后续统一计划记录在 [开发说明](docs/development_notes.md)。
+两种托管目标共用 TypeScript Agent 业务层，通过运行时适配器连接 D1 或 PostgreSQL。本地 FastAPI 继续承担真实工具链执行。它们的边界、差异和后续统一计划记录在 [开发说明](docs/development_notes.md)。
 
 ## 技术栈
 
 - **前端**：React 19、Next.js 16、Vinext、TypeScript、Tailwind CSS
-- **托管 API**：Cloudflare Worker、Drizzle ORM、D1
+- **托管 API**：Cloudflare Worker 或 Nitro/Vercel Node.js Function
+- **托管数据**：Drizzle ORM、Cloudflare D1、Neon/Supabase PostgreSQL
 - **本地 API / Agent**：FastAPI、Pydantic、SQLAlchemy、HTTPX
 - **模型接入**：DeepSeek OpenAI-compatible API、Mock Provider
 - **嵌入式原型**：ESP32、PlatformIO、Arduino
@@ -77,7 +79,9 @@ flowchart LR
 app/                    Web 工作台界面
 server/                 托管 TypeScript API、生成器与 ZIP 导出
 worker/                 Cloudflare Worker 入口
-db/                     D1 数据模型与迁移
+nitro/                  Vercel/Nitro 同源 API 入口
+db/                     D1 与 PostgreSQL 数据模型
+drizzle-postgres/       Vercel PostgreSQL 迁移
 apps/api/               FastAPI、本地 Agent 核心、生成器与测试
 packages/schemas/       共享 ProjectSpec JSON Schema
 catalogs/components/    示例器件目录
@@ -103,7 +107,7 @@ pip install -r apps/api/requirements.txt
 pnpm dev
 ```
 
-终端会打印 Web 本地地址。网页默认使用同源 `/api`。
+终端会打印 Cloudflare 本地 Web 地址。网页默认使用同源 `/api`。
 
 需要本机 Python 与 PlatformIO 执行能力时，另开终端：
 
@@ -114,6 +118,23 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 FastAPI 文档位于 `http://localhost:8000/docs`。
+
+## Vercel 构建
+
+Vercel 目标使用 Nitro 生成 Build Output API v3 目录，不替换现有 Cloudflare 路径：
+
+```bash
+pnpm build:vercel
+test -f .vercel/output/config.json
+```
+
+在线持久化必须配置 `DATABASE_URL` 并先执行：
+
+```bash
+pnpm db:migrate:postgres
+```
+
+完整的数据库、环境变量、Vercel 控制台和部署后验收步骤见 [Vercel 部署说明](docs/deploy-vercel.md)。当前仓库只准备部署产物，不自动执行生产部署。
 
 ## 接入 DeepSeek
 
@@ -152,7 +173,9 @@ curl -X POST http://localhost:8000/api/agent/test
 ```bash
 pnpm lint
 pnpm test
-pnpm build
+pnpm exec tsc --noEmit
+pnpm build:cloudflare
+pnpm build:vercel
 
 cd apps/api
 pytest
