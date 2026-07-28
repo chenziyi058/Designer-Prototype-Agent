@@ -1,62 +1,123 @@
 # Designer Prototype Agent
 
-面向工业设计师的“智能产品原型工程师”。它把纯文字产品概念先整理为带来源和验证状态的 `ProjectSpec`，再生成系统架构、BOM、接线、USB 串口协议、ESP32 固件、Python 工具、测试与完整工程包。
+> 智能产品原型工程师 Agent：把工业设计概念转化为可追溯、可验证、可继续制造的工程包。
 
-这不是通用聊天机器人。所有派生资产依赖版本化 `ProjectSpec`，工程精确性由确定性程序检查；无法核对的器件参数和价格保持“待确认”。
+![Designer Prototype Agent 项目封面](public/og.png)
 
-## 已实现的垂直闭环
+Designer Prototype Agent 是一个面向工业设计、智能产品开发与具身交互研究的 AI Agent 项目。它不是只输出建议的通用聊天机器人，而是一条从自然语言需求到系统架构、器件方案、通信协议、固件、Python 工具、测试计划和交付文档的工程化工作流。
 
-1. 五步文字项目表单与工业软件风格工作台。
-2. Pydantic `ProjectSpec`、JSON Schema、来源/置信度/验证状态。
-3. 部署端使用 Cloudflare D1；本地工程执行器使用 SQLite + SQLAlchemy，均持久化项目、版本、消息、运行、文件与验证记录。
-4. 可配置的 DeepSeek OpenAI-compatible Provider 与无密钥 Mock Provider。
-5. 系统架构、BOM、协议、PlatformIO、Python、测试和文档工程包生成。
-6. GPIO、I²C、电平、电机驱动与电源预算确定性检查。
-7. 修改影响分析、ProjectSpec 版本创建/恢复与工程包 ZIP 导出。
-8. 智能专注指环标准案例与自动化测试。
+项目以版本化 `ProjectSpec` 作为唯一需求源：大模型负责理解模糊意图、生成候选方案与解释，确定性程序负责电气约束、协议一致性、文件生成和验证状态。无法从数据手册或实物测试确认的信息会明确标记为“待确认”，不会被包装成已验证事实。
+
+## 项目定位
+
+- **研究方向**：AI Agent、工业设计、智能产品开发、HCI、具身智能原型。
+- **核心问题**：如何让设计概念跨越需求澄清、软硬件协同和验证记录之间的工程断层。
+- **目标用户**：工业设计师、交互设计师、创客、研究人员和智能硬件原型团队。
+- **输出目标**：生成可阅读、可追溯、可编译、可测试的项目工作区，而不仅是一次性对话。
+
+## 核心能力
+
+1. **需求结构化**：五步表单与 Agent 对话将产品概念整理为带来源、置信度和验证状态的 `ProjectSpec`。
+2. **候选器件推荐**：当用户不知道具体型号时，给出带取舍、适用条件和待核对项的候选方案，再由用户确认。
+3. **系统级生成**：从同一份需求生成架构、BOM、接线表、电源预算、串口协议、ESP32 固件、Python 工具和测试文档。
+4. **版本与影响分析**：核心需求变更创建新版本，并标记需要重新生成或重新验证的下游资产。
+5. **确定性验证**：检查 GPIO、I²C、电平、电机驱动、电源预算、协议结构和生成文件完整性。
+6. **模型可替换**：DeepSeek 与 Mock Provider 均通过 `ModelProvider` 接口接入；模型、密钥、超时和重试只来自配置。
+7. **工程包交付**：支持文件预览、验证记录、版本恢复和完整 ZIP 导出。
+
+## Agent 架构
+
+```mermaid
+flowchart LR
+    U["产品概念与约束"] --> RI["Requirement Interpreter"]
+    RI --> PS["ProjectSpec<br/>唯一需求源"]
+    PS --> O["Prototype Engineer<br/>Orchestrator"]
+    O --> A["Architecture Skill"]
+    O --> H["Hardware Skill"]
+    O --> P["Protocol Skill"]
+    O --> C["Code Skill"]
+    O --> T["Test Skill"]
+    A --> V["Deterministic Validators"]
+    H --> V
+    P --> V
+    C --> V
+    T --> V
+    V --> W["Versioned Project Workspace"]
+    W --> E["Preview / Report / ZIP Export"]
+```
+
+这套架构将职责分成两类：
+
+- **模型擅长的部分**：解释自然语言、发现缺失条件、提出候选器件、生成代码草案和说明。
+- **程序必须负责的部分**：版本控制、Schema、文件路径、协议同步、电气规则、测试状态和审计记录。
+
+详细设计见 [系统架构](docs/system_architecture.md) 与 [Agent 工作流程](docs/workflow.md)。
+
+## 两种运行形态
+
+| 形态 | 主要用途 | Web/API | 持久化 | 工程执行能力 |
+| --- | --- | --- | --- | --- |
+| 托管运行时 | 在线演示与多人访问基础 | Vinext/React + Cloudflare Worker API | Cloudflare D1 | 静态验证与工程包生成 |
+| 本地工程执行器 | 开发、研究与真实工具链验证 | FastAPI | SQLite + 项目目录 | Pytest、Python、PlatformIO |
+
+两条运行路径共享 `ProjectSpec` 设计原则，但当前分别维护 TypeScript 与 Python 实现。它们的边界、差异和后续统一计划记录在 [开发说明](docs/development_notes.md)。
+
+## 技术栈
+
+- **前端**：React 19、Next.js 16、Vinext、TypeScript、Tailwind CSS
+- **托管 API**：Cloudflare Worker、Drizzle ORM、D1
+- **本地 API / Agent**：FastAPI、Pydantic、SQLAlchemy、HTTPX
+- **模型接入**：DeepSeek OpenAI-compatible API、Mock Provider
+- **嵌入式原型**：ESP32、PlatformIO、Arduino
+- **质量保障**：ESLint、Node Test Runner、Pytest、确定性工程校验器
 
 ## 仓库结构
 
 ```text
-app/                    Next.js/Vinext 工作台
-apps/api/               FastAPI、SQLAlchemy、Agent 核心与测试
-packages/schemas/       共享 JSON Schema
-catalogs/components/    少量明确标记为示例的器件目录
-examples/               可重新生成的智能专注指环案例
-projects/               用户项目工作区（运行时生成）
-templates/              扩展模板位置
-docs/                   架构与安全说明
+app/                    Web 工作台界面
+server/                 托管 TypeScript API、生成器与 ZIP 导出
+worker/                 Cloudflare Worker 入口
+db/                     D1 数据模型与迁移
+apps/api/               FastAPI、本地 Agent 核心、生成器与测试
+packages/schemas/       共享 ProjectSpec JSON Schema
+catalogs/components/    示例器件目录
+examples/               可重复生成的智能专注指环案例
+docs/                   架构、流程、安全与开发说明
+public/                 项目展示图与静态资源
 ```
 
-## 本地启动
+运行时生成的 `data/`、`projects/`、构建缓存和本地密钥不会进入 Git。
 
-要求 Node 22+、pnpm、Python 3.11+。
+## 快速开始
+
+要求 Node.js 22.13+、pnpm、Python 3.11+。默认使用 Mock Provider，不需要 API Key。
 
 ```bash
 cp .env.example .env
 pnpm install
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r apps/api/requirements.txt
-pip install platformio  # 需要编译 ESP32 固件时
 
-# 完整网页（同源 API + 本地 D1）
 pnpm dev
+```
 
-# 可选：需要本机 Python/PlatformIO 执行能力时，另开终端
+终端会打印 Web 本地地址。网页默认使用同源 `/api`。
+
+需要本机 Python 与 PlatformIO 执行能力时，另开终端：
+
+```bash
+source .venv/bin/activate
 cd apps/api
 uvicorn app.main:app --reload --port 8000
 ```
 
-打开前端打印的本地地址。网页使用同源 `/api`，无需依赖 `localhost:8000`；FastAPI 文档位于 `http://localhost:8000/docs`，它保留给本机编译与工程执行流程。默认 `MODEL_PROVIDER=mock`，无需 API Key。
+FastAPI 文档位于 `http://localhost:8000/docs`。
 
-## DeepSeek 配置
+## 接入 DeepSeek
 
-复制并编辑根目录配置：
-
-```bash
-cp .env.example .env
-```
+在未提交的 `.env` 中配置：
 
 ```env
 MODEL_PROVIDER=deepseek
@@ -67,33 +128,26 @@ DEEPSEEK_REASONING_MODEL=deepseek-v4-pro
 DEEPSEEK_CODING_MODEL=deepseek-v4-pro
 ```
 
-根目录与 `apps/api/.env` 都会被加载，后者优先。推理和编码模型为空时自动回退到默认模型；Base URL、超时、重试、推理强度和温度均可配置。
-
-启动 API 后执行真实连接测试：
+模型名称应以 DeepSeek 控制台当前可用模型为准。启动本地 API 后验证连接：
 
 ```bash
 curl -X POST http://localhost:8000/api/agent/test
 ```
 
-返回 `DEEPSEEK_CONNECTION_OK`、实际模型名和 Token 用量即表示接入成功。启用 DeepSeek 后：
+返回 `DEEPSEEK_CONNECTION_OK`、实际模型名和 Token 用量表示连接成功。API Key 只能存放在本地 `.env` 或部署平台的加密环境变量中。
 
-- `POST /api/projects` 调用 Requirement Interpreter 生成 ProjectSpec 初稿。
-- `POST /api/projects/{id}/messages` 携带当前 ProjectSpec 调用项目 Agent。
-- `POST /api/projects/{id}/generate/{module}` 调用对应专业生成 Skill，并把结果写入项目工作区。
-- `GET /api/projects/{id}/agent-runs` 返回模型、Skill、Token、生成文件和失败信息。
+## 使用流程
 
-模型调用失败会记录为确定性回退，不会伪装成 DeepSeek 成功；项目创建、问答和工程模板仍可继续。模型生成内容还会经过工程诚信检查，未经核对的电气数值、引脚、价格、具体候选型号或兼容性断言不会写入工程资产。API Key 只能放在未提交的 `.env` 或部署平台的加密运行时变量中。
+1. 在“新建项目”中描述用户、交互、硬件、软件、预算与安全约束。
+2. Agent 生成 `ProjectSpec v1`，列出假设、待确认项和器件候选。
+3. 用户确认候选方案；核心需求变化会创建新版本，不会覆盖已接受结果。
+4. Orchestrator 按架构、硬件、协议、代码和测试模块生成工程资产。
+5. 确定性校验器输出 `PASS`、`FAIL` 或 `NOT_RUN`，并记录依据。
+6. 用户预览文件、查看验证历史，或导出完整工程包继续开发。
 
-## 工作台使用
+## 依赖与验证
 
-1. 用“新建项目”的五步表单创建项目；DeepSeek 会先解析需求，再保存 ProjectSpec v1。
-2. 在右侧 Agent 面板输入需求修改。明确的预算、主控和软件需求修改会创建新版本，并把旧工程资产标记为需要重新确认；普通问答不会改写 ProjectSpec。
-3. 左侧模块页面可调用 DeepSeek 生成专业分析，并在项目工作区保留确定性模板代码与模型生成记录。
-4. 文件列表支持 Markdown、JSON、YAML、CSV、Python、C++、TypeScript 等文本预览、复制和单文件下载；项目概览可导出完整 ZIP。
-5. 硬件、协议和代码页面可运行相应确定性检查。托管网页执行静态代码检查，并明确把 Python、PlatformIO 和实物测试标为 `NOT_RUN`；本机 FastAPI 工程执行器才会实际运行 Python 与 PlatformIO。
-6. “需求”页面可查看或恢复 ProjectSpec 历史版本；“验证记录”页面显示验证结果、模型、Token、文件和失败信息。
-
-## 测试与构建
+前端依赖由根目录 `package.json` 与 `pnpm-lock.yaml` 锁定；Python 依赖由 `apps/api/requirements.txt` 和 `apps/api/pyproject.toml` 管理。
 
 ```bash
 pnpm lint
@@ -104,23 +158,29 @@ cd apps/api
 pytest
 python scripts/generate_example.py
 
-# 生成项目的固件目录内（安装 PlatformIO 后）
+cd ../../examples/project-408f45c1/04_firmware
 pio run
 ```
 
-标准案例已在 `esp32-s3-devkitc-1` 环境真实编译通过。新生成项目在未运行 PlatformIO 时仍保持 `NOT_RUN`，不会继承或伪造“编译通过”。
+只有真实执行成功的检查才会被记录为通过。未安装工具链或未连接实物时，相关状态保持 `NOT_RUN`。完整验收范围见 [功能验收矩阵](docs/acceptance-matrix.md)。
 
-完整功能验收矩阵见 [`docs/acceptance-matrix.md`](docs/acceptance-matrix.md)。
+## 项目截图
 
-## Docker
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-Web 使用 3000 端口，API 使用 8000 端口。SQLite 与项目工作区通过本地目录持久化。
+当前 README 使用 [项目封面](public/og.png) 展示从 `ProjectSpec` 到架构、硬件、协议、代码和验证的核心链路。后续界面截图建议统一放入 `docs/assets/`，覆盖需求确认、器件推荐、工程生成和验证记录四个场景。
 
 ## 安全边界
 
-Agent 内容只用于低压、有人值守的原型辅助。首次上电前人工检查接线；电机与大电流负载必须使用合适驱动器；确认电压、最大电流和启动电流；运动机构保留急停。市电、高压、高温、大功率、医疗和人体安全相关项目必须由专业人员复核。
+本项目只辅助低压、有人值守的原型开发。首次上电前必须人工检查接线；电机与大电流负载必须使用合适驱动器并确认启动电流；运动机构必须保留急停。市电、高压、高温、大功率、医疗或人体安全相关项目必须由专业人员复核。详见 [安全说明](docs/safety.md)。
+
+## 后续规划
+
+- 统一托管 TypeScript API 与本地 Python 执行器的领域逻辑和契约测试。
+- 增加用户认证、项目隔离、速率限制与模型用量控制。
+- 扩展经数据手册核验的器件目录和可追溯引用。
+- 增加真实硬件在环测试与更多 ESP32 原型案例。
+- 建立协议、固件、Python SDK 和文档的联动更新检查。
+- 补充研究评估：任务完成率、工程错误率、人工确认成本和可复现性。
+
+## 开源状态
+
+项目正在整理为个人技术作品、研究交流与开源展示仓库。正式授予开源许可前仍需由项目所有者选择并添加 `LICENSE`。
