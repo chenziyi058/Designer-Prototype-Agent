@@ -41,8 +41,12 @@ test("projects can be deleted only after explicit name confirmation", async () =
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../server/api.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /永久删除项目/);
+  assert.match(page, /确认永久删除/);
   assert.match(page, /confirmation\.trim\(\) === project\.name/);
+  assert.match(page, /删除当前项目/);
+  assert.match(page, /确认删除项目？/);
+  assert.match(page, /继续，进行二次确认/);
+  assert.match(page, /第二次确认：请输入项目名称/);
   assert.match(page, /method: "DELETE"/);
   assert.match(api, /parts\.length === 3 && method === "DELETE"/);
   assert.match(api, /DELETE FROM projects WHERE id = \? AND owner = \?/);
@@ -54,8 +58,26 @@ test("derived module files have a persistent user confirmation interface", async
     readFile(new URL("../server/api.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /ArtifactConfirmationPanel/);
+  assert.match(page, /你正在确认什么/);
+  assert.match(page, /文件用途/);
+  assert.match(page, /建议核对/);
+  assert.match(page, /确认后的影响/);
+  for (const moduleName of [
+    "系统架构",
+    "硬件方案",
+    "BOM",
+    "接线",
+    "通信协议",
+    "固件代码",
+    "Python 程序",
+    "控制界面",
+    "测试",
+    "文档",
+  ]) {
+    assert.match(page, new RegExp(JSON.stringify(moduleName).slice(1, -1)));
+  }
   assert.match(page, /确认该文件/);
-  assert.match(page, /不代表代码编译、具体器件参数、接线或实物测试已经通过/);
+  assert.match(page, /“确认内容”与“验证工程结果”是两件不同的事/);
   assert.match(page, /artifacts\/\$\{artifactId\}\/confirmations/);
   assert.match(api, /artifact-review:/);
   assert.match(api, /source_spec_version/);

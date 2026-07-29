@@ -234,13 +234,14 @@ function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
 }
 
 function Dropdown({
-  label, value, options, onChange, disabled = false,
+  label, value, options, onChange, disabled = false, dangerAction,
 }: {
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
   disabled?: boolean;
+  dangerAction?: { label: string; onClick: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -272,21 +273,31 @@ function Dropdown({
       <span>{selected?.label ?? "请选择"}</span>
       <ChevronDown size={15} aria-hidden="true" />
     </button>
-    {open && <div className="dropdown-menu" role="listbox" aria-label={`${label}选项`}>
-      {options.map((option) => <button
+    {open && <div className="dropdown-menu">
+      <div className="dropdown-options" role="listbox" aria-label={`${label}选项`}>
+        {options.map((option) => <button
+          type="button"
+          role="option"
+          aria-selected={option.value === value}
+          className={option.value === value ? "selected" : ""}
+          key={option.value}
+          onClick={() => {
+            onChange(option.value);
+            setOpen(false);
+          }}
+        >
+          <span>{option.label}</span>
+          {option.value === value && <Check size={14} />}
+        </button>)}
+      </div>
+      {dangerAction && <button
         type="button"
-        role="option"
-        aria-selected={option.value === value}
-        className={option.value === value ? "selected" : ""}
-        key={option.value}
+        className="dropdown-danger"
         onClick={() => {
-          onChange(option.value);
           setOpen(false);
+          dangerAction.onClick();
         }}
-      >
-        <span>{option.label}</span>
-        {option.value === value && <Check size={14} />}
-      </button>)}
+      ><Trash2 size={13} />{dangerAction.label}</button>}
     </div>}
   </div>;
 }
@@ -660,6 +671,13 @@ export default function HomePage() {
                   : [{ value: "", label: "尚未创建项目" }]}
                 disabled={projects.length === 0}
                 onChange={(value) => void loadProject(value)}
+                dangerAction={project ? {
+                  label: "删除当前项目",
+                  onClick: () => {
+                    setMobileNav(false);
+                    setDeleteOpen(true);
+                  },
+                } : undefined}
               />
               <small>{project ? `ProjectSpec v${project.current_spec_version}` : "请创建项目"}</small>
             </div>
@@ -922,6 +940,74 @@ function ModuleView({
   </>;
 }
 
+const moduleReviewGuidance: Record<string, {
+  purpose: string;
+  checklist: string[];
+  boundary: string;
+  example: string;
+}> = {
+  系统架构: {
+    purpose: "说明产品的功能模块、输入输出、数据流、控制流和状态关系，是后续硬件与软件生成的结构依据。",
+    checklist: ["模块是否覆盖 ProjectSpec 的产品目标", "输入、处理和输出关系是否合理", "异常状态与安全状态是否遗漏"],
+    boundary: "确认架构逻辑一致，不代表其中涉及的具体器件、通信参数或控制效果已经验证。",
+    example: "已核对功能模块、数据流和安全状态，与当前 ProjectSpec 一致。",
+  },
+  硬件方案: {
+    purpose: "记录主控、传感器、执行器、电源和通信器件的选择方向，以及仍需查阅数据手册的未知参数。",
+    checklist: ["器件类别是否满足功能需求", "所有未知型号和电气参数是否保持待确认", "是否保留电源、驱动和安全边界"],
+    boundary: "确认选型方向不等于确认具体型号兼容，也不代表电压、电流、引脚或库存已经核实。",
+    example: "已确认器件类别和选型方向；具体型号、电气参数仍保留待确认。",
+  },
+  BOM: {
+    purpose: "汇总原型需要的器件类别、数量、用途、成本风险和替代方向，用于采购前的工程审查。",
+    checklist: ["器件是否有缺项或重复", "数量与用途是否符合当前方案", "价格、型号和供货信息是否明确标记来源与验证状态"],
+    boundary: "确认 BOM 结构不代表实时价格、库存、具体型号或供应商信息已经核实，不能直接触发采购。",
+    example: "已核对器件类别、数量和用途；价格与具体型号待采购前再次核实。",
+  },
+  接线: {
+    purpose: "描述控制器与外设之间的信号关系、方向和待核对的电气连接，是人工绘制和检查实物接线的依据。",
+    checklist: ["信号两端与方向是否清楚", "未确认的引脚、电压和电平是否没有被猜测", "电源、共地、驱动和急停要求是否保留"],
+    boundary: "确认接线文档不代表可以直接上电；首次上电前仍必须对照具体板卡数据手册并人工逐线检查。",
+    example: "已核对信号关系和方向；具体引脚、电压与实物接线仍需数据手册和人工检查。",
+  },
+  通信协议: {
+    purpose: "定义固件与 Python 程序共同使用的消息结构、字段、命令、错误码、超时和版本约束。",
+    checklist: ["Schema、固件和 Python 的字段定义是否一致", "命令、响应和错误处理是否完整", "版本、超时与重试约束是否清楚"],
+    boundary: "确认协议设计不代表真实串口、网络连接、丢包恢复或设备端交互已经测试通过。",
+    example: "已核对消息字段、错误码和版本约束；真实通信仍需联机测试。",
+  },
+  固件代码: {
+    purpose: "实现主控端状态机、通信处理、日志和故障安全逻辑，是本地 PlatformIO 工程的代码草稿。",
+    checklist: ["代码是否引用当前协议和 ProjectSpec 版本", "状态机与错误处理是否覆盖设计要求", "是否避免自动烧录和无人值守硬件操作"],
+    boundary: "网页确认代码内容不代表 PlatformIO 编译、烧录、时序或真实硬件运行已经通过。",
+    example: "已阅读状态机和协议处理逻辑；仍需在本地编译并由人工连接硬件测试。",
+  },
+  "Python 程序": {
+    purpose: "提供数据采集、协议客户端、处理、训练和推理工具，是导出后在本机运行的程序草稿。",
+    checklist: ["数据输入输出是否符合产品流程", "协议常量是否与固件一致", "本地路径、串口和数据前置条件是否说明清楚"],
+    boundary: "网页确认不代表 pytest 已运行，也不代表串口、数据集、模型效果或真实设备通信已经验证。",
+    example: "已核对程序结构和协议引用；本地依赖、测试与设备通信尚需实际执行。",
+  },
+  控制界面: {
+    purpose: "描述项目专用控制台的操作、反馈、状态展示与有人值守边界，用于本地原型交互。",
+    checklist: ["界面操作是否对应 ProjectSpec 的用户动作", "状态与异常反馈是否清楚", "危险操作是否保留人工确认和安全提示"],
+    boundary: "确认界面设计不代表后端、真实硬件控制或用户体验测试已经完成。",
+    example: "已核对主要操作、状态反馈和安全提示；真实控制链路仍未验证。",
+  },
+  测试: {
+    purpose: "定义单元、模块、集成、首次上电、安全、异常和连续运行测试的步骤与预期结果。",
+    checklist: ["测试是否覆盖关键需求和风险", "步骤、前置条件和预期结果是否可执行", "未运行项目是否仍明确标记为未运行"],
+    boundary: "确认测试计划只表示认可测试设计，不代表任何测试、编译或实物验证已经执行或通过。",
+    example: "已确认测试范围和步骤；所有未执行用例仍保持未运行状态。",
+  },
+  文档: {
+    purpose: "汇总安装、运行、调试、安全边界、验证结论和项目限制，供后续开发、交流与交接使用。",
+    checklist: ["内容是否对应当前 ProjectSpec 版本", "运行步骤和限制是否准确", "未验证事项、安全边界和下一步是否完整"],
+    boundary: "确认文档内容不等于确认其中引用的工程结果、器件参数或实物表现已经通过验证。",
+    example: "已核对文档与当前 ProjectSpec 一致，未验证事项和安全边界表述完整。",
+  },
+};
+
 function ArtifactConfirmationPanel({
   artifact, moduleName, currentSpecVersion, disabled, onConfirm,
 }: {
@@ -936,6 +1022,13 @@ function ArtifactConfirmationPanel({
   const [submitting, setSubmitting] = useState(false);
   const confirmed = artifact.status === "USER_CONFIRMED";
   const stale = artifact.source_spec_version !== currentSpecVersion;
+  const guidance = moduleReviewGuidance[moduleName] ?? {
+    purpose: "该文件是当前 ProjectSpec 派生的工程资产，用于记录本模块的设计结论与待验证事项。",
+    checklist: ["内容是否符合当前 ProjectSpec", "未知信息是否保持待确认", "限制与下一步是否说明清楚"],
+    boundary: "确认文件内容不代表代码、器件、接线或实物测试已经通过。",
+    example: "已核对文件内容与当前 ProjectSpec 一致，未验证事项保留清楚。",
+  };
+  const fileName = artifact.path.split("/").at(-1) ?? artifact.path;
 
   if (confirmed) {
     return <section className="card artifact-confirmation confirmed">
@@ -962,43 +1055,59 @@ function ArtifactConfirmationPanel({
       </div>
       <Badge tone={stale ? "danger" : "waiting"}>{stale ? "需要重新生成" : statusText[artifact.status] ?? "等待确认"}</Badge>
     </div>
-    {!stale && <>
-      <label className="artifact-confirmation-note">
-        <span>确认说明</span>
-        <textarea
-          aria-label={`确认说明：${artifact.path}`}
-          placeholder="例如：已对照 ProjectSpec 核对模块边界、输入输出和未验证项，未发现与当前需求冲突。"
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-        />
-      </label>
-      <label className="artifact-confirmation-check">
-        <input
-          type="checkbox"
-          checked={acknowledged}
-          onChange={(event) => setAcknowledged(event.target.checked)}
-        />
-        <span>我已人工核对该文件，并理解此确认不代表代码编译、具体器件参数、接线或实物测试已经通过。</span>
-      </label>
-      <button
-        type="button"
-        className="button primary compact"
-        disabled={disabled || submitting || !acknowledged || note.trim().length < 2}
-        onClick={() => {
-          setSubmitting(true);
-          void onConfirm(artifact.id, note.trim())
-            .then(() => {
-              setNote("");
-              setAcknowledged(false);
-            })
-            .catch(() => undefined)
-            .finally(() => setSubmitting(false));
-        }}
-      >
-        {submitting ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
-        {submitting ? "正在记录确认…" : "确认该文件"}
-      </button>
-    </>}
+    <div className="artifact-confirmation-body">
+      <aside className="review-explanation">
+        <header><Lightbulb size={16} /><strong>你正在确认什么</strong></header>
+        <dl>
+          <div><dt>确认对象</dt><dd>{fileName}（{artifact.kind.toUpperCase()} 文件）</dd></div>
+          <div><dt>文件用途</dt><dd>{guidance.purpose}</dd></div>
+          <div><dt>建议核对</dt><dd><ul>{guidance.checklist.map((item) => <li key={item}>{item}</li>)}</ul></dd></div>
+          <div><dt>确认后的影响</dt><dd>该文件会标记为“用户已确认”，同时在验证记录中保存确认说明、文件校验值与来源 ProjectSpec 版本。</dd></div>
+        </dl>
+        <p><AlertTriangle size={13} />{guidance.boundary}</p>
+      </aside>
+      {stale ? <div className="review-blocked">
+        <AlertTriangle size={20} />
+        <strong>确认操作暂不可用</strong>
+        <p>当前文件不是由最新 ProjectSpec 生成。请先点击本页“使用 DeepSeek 生成”，再核对和确认新文件。</p>
+      </div> : <div className="confirmation-controls">
+        <label className="artifact-confirmation-note">
+          <span>确认说明</span>
+          <textarea
+            aria-label={`确认说明：${artifact.path}`}
+            placeholder={`例如：${guidance.example}`}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
+        <label className="artifact-confirmation-check">
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(event) => setAcknowledged(event.target.checked)}
+          />
+          <span>我已阅读左侧说明并人工核对该文件，理解“确认内容”与“验证工程结果”是两件不同的事。</span>
+        </label>
+        <button
+          type="button"
+          className="button primary compact"
+          disabled={disabled || submitting || !acknowledged || note.trim().length < 2}
+          onClick={() => {
+            setSubmitting(true);
+            void onConfirm(artifact.id, note.trim())
+              .then(() => {
+                setNote("");
+                setAcknowledged(false);
+              })
+              .catch(() => undefined)
+              .finally(() => setSubmitting(false));
+          }}
+        >
+          {submitting ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
+          {submitting ? "正在记录确认…" : "确认该文件"}
+        </button>
+      </div>}
+    </div>
   </section>;
 }
 
@@ -1325,6 +1434,7 @@ function DeleteProjectModal({
   close: () => void;
   onDelete: () => Promise<void>;
 }) {
+  const [stage, setStage] = useState<1 | 2>(1);
   const [confirmation, setConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
   const matches = confirmation.trim() === project.name;
@@ -1332,7 +1442,7 @@ function DeleteProjectModal({
   return <div className="backdrop" role="presentation">
     <section className="modal-box delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
       <header>
-        <div><span className="kicker">危险操作</span><h2 id="delete-project-title">删除“{project.name}”</h2></div>
+        <div><span className="kicker">危险操作 · 第 {stage}/2 步</span><h2 id="delete-project-title">{stage === 1 ? "确认删除项目？" : `再次确认删除“${project.name}”`}</h2></div>
         <button className="icon" aria-label="关闭删除项目" disabled={deleting} onClick={close}><X size={20} /></button>
       </header>
       <div className="delete-warning">
@@ -1342,32 +1452,48 @@ function DeleteProjectModal({
           <p>包括所有 ProjectSpec 版本、Agent 对话与运行记录、工程文件、验证记录。此操作无法撤销，也不会删除你已经下载的 ZIP 文件。</p>
         </div>
       </div>
-      <label className="field delete-confirm-field">
-        <span>请输入项目名称 <strong>{project.name}</strong> 以确认</span>
-        <input
-          autoFocus
-          aria-label="输入项目名称确认删除"
-          value={confirmation}
-          onChange={(event) => setConfirmation(event.target.value)}
-          placeholder={project.name}
-        />
-      </label>
-      <footer>
-        <button className="button secondary" disabled={deleting} onClick={close}>取消</button>
-        <button
-          className="button danger"
-          disabled={disabled || deleting || !matches}
-          onClick={() => {
-            setDeleting(true);
-            void onDelete()
-              .catch(() => undefined)
-              .finally(() => setDeleting(false));
-          }}
-        >
-          {deleting ? <LoaderCircle size={15} className="spin" /> : <Trash2 size={15} />}
-          {deleting ? "正在删除…" : "永久删除项目"}
-        </button>
-      </footer>
+      {stage === 1 ? <>
+        <div className="delete-stage-copy">
+          <strong>即将删除：{project.name}</strong>
+          <p>请先确认你选中的是正确项目。点击下面的按钮不会立即删除，而是进入第二次名称确认。</p>
+        </div>
+        <footer>
+          <button className="button secondary" onClick={close}>取消</button>
+          <button className="button danger" disabled={disabled} onClick={() => setStage(2)}>
+            继续，进行二次确认 <ArrowRight size={15} />
+          </button>
+        </footer>
+      </> : <>
+        <label className="field delete-confirm-field">
+          <span>第二次确认：请输入项目名称 <strong>{project.name}</strong></span>
+          <input
+            autoFocus
+            aria-label="输入项目名称二次确认删除"
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            placeholder={project.name}
+          />
+        </label>
+        <footer>
+          <button className="button secondary" disabled={deleting} onClick={() => {
+            setConfirmation("");
+            setStage(1);
+          }}>上一步</button>
+          <button
+            className="button danger"
+            disabled={disabled || deleting || !matches}
+            onClick={() => {
+              setDeleting(true);
+              void onDelete()
+                .catch(() => undefined)
+                .finally(() => setDeleting(false));
+            }}
+          >
+            {deleting ? <LoaderCircle size={15} className="spin" /> : <Trash2 size={15} />}
+            {deleting ? "正在删除…" : "确认永久删除"}
+          </button>
+        </footer>
+      </>}
     </section>
   </div>;
 }
