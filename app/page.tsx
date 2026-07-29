@@ -1094,7 +1094,12 @@ function IntroCover({
     }}
   >
     <div className="intro-backdrop" aria-hidden="true" />
-    <div ref={logoRef} className="intro-logo" aria-hidden="true" />
+    <div ref={logoRef} className="intro-logo" aria-hidden="true">
+      <span className="intro-logo-piece top" />
+      <span className="intro-logo-piece right" />
+      <span className="intro-logo-piece bottom" />
+      <span className="intro-logo-piece left" />
+    </div>
     <div className="intro-copy">
       <span>DESIGNER PROTOTYPE AGENT</span>
       <h1>智能产品原型工程师</h1>

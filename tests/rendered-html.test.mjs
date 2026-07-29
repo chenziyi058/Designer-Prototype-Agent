@@ -33,6 +33,10 @@ test("visual workbench preserves the original empty-project structure without in
   assert.match(page, /initial-view/);
   assert.match(page, /Designer Prototype Agent 标志/);
   assert.match(page, /IntroCover/);
+  assert.match(page, /intro-logo-piece top/);
+  assert.match(page, /intro-logo-piece right/);
+  assert.match(page, /intro-logo-piece bottom/);
+  assert.match(page, /intro-logo-piece left/);
   assert.match(page, /任意点击进入工作台/);
   assert.match(page, /intro-translate-x/);
   assert.match(css, /\.app-shell/);
@@ -40,6 +44,11 @@ test("visual workbench preserves the original empty-project structure without in
   assert.match(css, /\.brand-symbol/);
   assert.match(css, /designer-prototype-agent-symbol\.png/);
   assert.match(css, /\.intro-cover\.leaving \.intro-logo/);
+  assert.match(css, /@keyframes intro-logo-piece-top/);
+  assert.match(css, /@keyframes intro-logo-piece-right/);
+  assert.match(css, /@keyframes intro-logo-piece-bottom/);
+  assert.match(css, /@keyframes intro-logo-piece-left/);
+  assert.match(css, /@keyframes intro-logo-lock/);
   assert.match(css, /translate 980ms cubic-bezier\(0\.16, 1, 0\.3, 1\)/);
   assert.match(css, /scale 980ms cubic-bezier\(0\.16, 1, 0\.3, 1\)/);
   assert.match(css, /\.app-root\.initial-view\s*\{\s*padding: 0;/);
@@ -135,6 +144,10 @@ test("overview is conversation-first and no longer renders the duplicated dashbo
   assert.match(css, /@keyframes orb-gaze/);
   assert.match(css, /@keyframes orb-eye-blink/);
   assert.match(css, /@keyframes orb-white-halo/);
+  assert.match(css, /@keyframes orb-thinking-halo/);
+  assert.match(css, /@keyframes orb-thinking-signal/);
+  assert.match(css, /@keyframes orb-thinking-eye-left/);
+  assert.match(css, /@keyframes orb-thinking-eye-right/);
   assert.match(css, /\.agent-orb b::before/);
   assert.match(page, /<em \/>/);
   assert.doesNotMatch(css, /@keyframes orb-rotate/);
