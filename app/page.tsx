@@ -1,15 +1,16 @@
 "use client";
 
 import {
-  AlertTriangle, ArrowRight, Bot, Box, Check, ChevronDown, ChevronRight, CircleDollarSign,
+  AlertTriangle, ArrowRight, Bot, Check, ChevronDown, ChevronRight, CircleDollarSign,
   Clipboard, ClipboardCheck, Code2, Cpu, Download, FileCode2, FileText,
   FolderOpen, GitBranch, Home, Layers3, LoaderCircle, Menu, PackageSearch,
   Lightbulb, Plus, Send, Settings2, ShieldCheck, Sparkles, TestTube2,
   Trash2, Unplug, X,
 } from "lucide-react";
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Tone = "done" | "active" | "waiting" | "neutral" | "danger";
+type IntroPhase = "cover" | "leaving" | "done";
 type Traced<T> = {
   value: T;
   source: string;
@@ -233,6 +234,51 @@ function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`status ${tone}`}>{children}</span>;
 }
 
+function useDialogFocus<T extends HTMLElement>(onClose: () => void) {
+  const dialogRef = useRef<T>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const selector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(selector));
+    focusable[0]?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = Array.from(dialog!.querySelectorAll<HTMLElement>(selector));
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previous?.focus();
+    };
+  }, []);
+
+  return dialogRef;
+}
+
 function Dropdown({
   label, value, options, onChange, disabled = false, dangerAction,
 }: {
@@ -323,6 +369,9 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [preview, setPreview] = useState("");
+  const [introPhase, setIntroPhase] = useState<IntroPhase>("cover");
+  const introLogoRef = useRef<HTMLDivElement>(null);
+  const introTimerRef = useRef<number | null>(null);
 
   const loadProject = useCallback(async (projectId: string) => {
     setBusy("正在加载项目");
@@ -383,7 +432,35 @@ export default function HomePage() {
     }
   }, [loadProject]);
 
-  useEffect(() => { void loadProjects(); }, [loadProjects]);
+  useEffect(() => {
+    if (introPhase === "done") void loadProjects();
+  }, [introPhase, loadProjects]);
+
+  useEffect(() => () => {
+    if (introTimerRef.current !== null) window.clearTimeout(introTimerRef.current);
+  }, []);
+
+  const dismissIntro = useCallback(() => {
+    if (introPhase !== "cover") return;
+    const logo = introLogoRef.current;
+    const target = document.querySelector<HTMLElement>(".brand-symbol");
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!logo || !target || prefersReducedMotion) {
+      setIntroPhase("done");
+      return;
+    }
+    const sourceRect = logo.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const sourceCenterX = sourceRect.left + sourceRect.width / 2;
+    const sourceCenterY = sourceRect.top + sourceRect.height / 2;
+    const targetCenterX = targetRect.left + targetRect.width / 2;
+    const targetCenterY = targetRect.top + targetRect.height / 2;
+    logo.style.setProperty("--intro-translate-x", `${targetCenterX - sourceCenterX}px`);
+    logo.style.setProperty("--intro-translate-y", `${targetCenterY - sourceCenterY}px`);
+    logo.style.setProperty("--intro-scale", `${targetRect.width / sourceRect.width}`);
+    setIntroPhase("leaving");
+    introTimerRef.current = window.setTimeout(() => setIntroPhase("done"), 1040);
+  }, [introPhase]);
 
   const filteredArtifacts = useMemo(() => {
     const config = moduleConfig[active];
@@ -639,27 +716,34 @@ export default function HomePage() {
     ? "hardware"
     : active === "通信协议" ? "protocol"
     : ["固件代码", "Python 程序"].includes(active) ? "code" : undefined;
+  const introVisible = introPhase !== "done";
 
   return (
-    <main>
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark"><Box size={18} /></span>
-          <div><strong>智能产品原型工程师</strong><small>Designer Prototype Agent</small></div>
-        </div>
-        <div className="actions">
-          <Badge tone={provider.startsWith("DeepSeek") ? "done" : "neutral"}>{provider}</Badge>
-          <button className="button secondary compact agent-toggle" aria-label="打开或关闭 Agent" onClick={() => setAgentOpen(!agentOpen)}><Bot size={16} /> Agent</button>
-          <button className="button primary compact" onClick={() => setCreateOpen(true)}><Plus size={16} /> 新建项目</button>
-          <button className="icon mobile" onClick={() => setMobileNav(!mobileNav)} aria-label="导航"><Menu size={20} /></button>
-        </div>
-      </header>
+    <main className={`app-root ${!project || !spec ? "initial-view" : ""} ${introVisible ? "intro-active" : ""}`}>
+      <div className="ambient ambient-one" aria-hidden="true" />
+      <div className="ambient ambient-two" aria-hidden="true" />
+      <section className="app-shell">
+        <header className="topbar">
+          <div className="brand">
+            <div><strong>智能产品原型工程师</strong><small>Designer Prototype Agent</small></div>
+          </div>
+          <div className="actions">
+            <div className={`model-state ${provider.startsWith("DeepSeek") ? "connected" : "neutral"}`}>
+              <i aria-hidden="true" />
+              <Badge tone={provider.startsWith("DeepSeek") ? "done" : "neutral"}>{provider}</Badge>
+            </div>
+            <button className="button secondary compact agent-toggle" aria-label="打开或关闭 Agent" onClick={() => setAgentOpen(!agentOpen)}><Bot size={16} /> Agent</button>
+            <button className="button primary compact" onClick={() => setCreateOpen(true)}><Plus size={16} /> 新建项目</button>
+            <button className="icon mobile" onClick={() => setMobileNav(!mobileNav)} aria-label="打开项目导航"><Menu size={20} /></button>
+          </div>
+        </header>
 
-      {error && <div className="global-error"><AlertTriangle size={15} />{error}<button onClick={() => setError("")}><X size={14} /></button></div>}
-      {busy && <div className="busybar"><LoaderCircle size={14} className="spin" />{busy}</div>}
+        {error && <div className="global-error" role="alert"><AlertTriangle size={15} />{error}<button aria-label="关闭错误提示" onClick={() => setError("")}><X size={14} /></button></div>}
+        {busy && <div className="busybar" role="status"><LoaderCircle size={14} className="spin" />{busy}</div>}
 
-      <div className={`workspace ${agentOpen ? "" : "no-agent"}`}>
-        <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
+        <div className={`workspace ${agentOpen ? "" : "no-agent"}`}>
+          {mobileNav && <button className="mobile-nav-scrim" aria-label="关闭项目导航" onClick={() => setMobileNav(false)} />}
+          <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
           <div className="project-switcher">
             <span>{project?.name.slice(0, 1) ?? "项"}</span>
             <div>
@@ -682,6 +766,7 @@ export default function HomePage() {
               <small>{project ? `ProjectSpec v${project.current_spec_version}` : "请创建项目"}</small>
             </div>
           </div>
+          <span className="nav-caption">Project workflow</span>
           <nav>{nav.map(([label, Icon]) => (
             <button
               key={label}
@@ -696,9 +781,9 @@ export default function HomePage() {
             <ShieldCheck size={18} />
             <div><strong>原型安全边界</strong><p>首次上电前必须人工检查接线。Agent 不能替代专业电气安全评审。</p></div>
           </div>
-        </aside>
+          </aside>
 
-        <section className="content">
+          <section className="content">
           {!project || !spec ? (
             <EmptyHome loading={Boolean(busy)} onCreate={() => setCreateOpen(true)} />
           ) : active === "项目概览" ? (
@@ -734,10 +819,10 @@ export default function HomePage() {
               disabled={Boolean(busy)}
             />
           )}
-        </section>
+          </section>
 
-        {agentOpen && (
-          <aside className="agent">
+          {agentOpen && (
+            <aside className="agent">
             <div className="agent-head">
               <div><span><Bot size={17} /></span><div><strong>Prototype Engineer</strong><small>● {provider}</small></div></div>
               <button className="icon" aria-label="关闭 Agent" onClick={() => setAgentOpen((open) => !open)}><X size={18} /></button>
@@ -761,9 +846,14 @@ export default function HomePage() {
               <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="例如：预算降到 1000 元以内…" />
               <div><small>{busy ? "Agent 正在工作…" : "发送后自动记录 ProjectSpec 新版本"}</small><button aria-label="发送消息" disabled={Boolean(busy)}><Send size={16} /></button></div>
             </form>
-          </aside>
-        )}
-      </div>
+            </aside>
+          )}
+        </div>
+        <footer className="workbench-footer">
+          <span><i className={provider.startsWith("DeepSeek") ? "connected" : ""} />{provider}</span>
+          <span>ProjectSpec 驱动 · {capabilities?.local_executor_available ? "本地执行器可用" : "云端仅提供静态验证"}</span>
+        </footer>
+      </section>
 
       {createOpen && <CreateModal close={() => setCreateOpen(false)} onCreate={createProject} />}
       {deleteOpen && project && <DeleteProjectModal
@@ -772,13 +862,55 @@ export default function HomePage() {
         close={() => setDeleteOpen(false)}
         onDelete={deleteCurrentProject}
       />}
+      {introVisible && (
+        <IntroCover phase={introPhase} logoRef={introLogoRef} onEnter={dismissIntro} />
+      )}
     </main>
   );
 }
 
+function IntroCover({
+  phase,
+  logoRef,
+  onEnter,
+}: {
+  phase: Exclude<IntroPhase, "done">;
+  logoRef: RefObject<HTMLDivElement | null>;
+  onEnter: () => void;
+}) {
+  return <section
+    className={`intro-cover ${phase}`}
+    role="button"
+    tabIndex={0}
+    autoFocus
+    aria-label="进入 Designer Prototype Agent 工作台"
+    onClick={onEnter}
+    onKeyDown={(event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onEnter();
+      }
+    }}
+  >
+    <div className="intro-backdrop" aria-hidden="true" />
+    <div ref={logoRef} className="intro-logo" aria-hidden="true" />
+    <div className="intro-copy">
+      <span>DESIGNER PROTOTYPE AGENT</span>
+      <h1>智能产品原型工程师</h1>
+      <p>以 ProjectSpec 串联需求、架构、硬件、代码与文档，让概念更快抵达可验证原型。</p>
+      <small>任意点击进入工作台</small>
+    </div>
+  </section>;
+}
+
 function EmptyHome({ loading, onCreate }: { loading: boolean; onCreate: () => void }) {
   return <div className="empty home-empty">
-    <span>{loading ? <LoaderCircle className="spin" /> : <Box />}</span>
+    {loading ? (
+      <span><LoaderCircle className="spin" /></span>
+    ) : (
+      <div className="brand-symbol" role="img" aria-label="Designer Prototype Agent 标志" />
+    )}
+    <div className="kicker">Project workspace</div>
     <h2>{loading ? "正在连接工程工作台" : "创建第一个智能产品原型"}</h2>
     <p>用纯文字描述产品目标、交互、技术偏好与现实约束。DeepSeek 会先形成可追踪的 ProjectSpec，再生成工程资产。</p>
     {!loading && <button className="button primary" onClick={onCreate}><Plus size={16} /> 新建项目</button>}
@@ -1438,9 +1570,10 @@ function DeleteProjectModal({
   const [confirmation, setConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
   const matches = confirmation.trim() === project.name;
+  const dialogRef = useDialogFocus<HTMLElement>(close);
 
   return <div className="backdrop" role="presentation">
-    <section className="modal-box delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
+    <section ref={dialogRef} className="modal-box delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
       <header>
         <div><span className="kicker">危险操作 · 第 {stage}/2 步</span><h2 id="delete-project-title">{stage === 1 ? "确认删除项目？" : `再次确认删除“${project.name}”`}</h2></div>
         <button className="icon" aria-label="关闭删除项目" disabled={deleting} onClick={close}><X size={20} /></button>
@@ -1498,7 +1631,12 @@ function DeleteProjectModal({
   </div>;
 }
 
-function CreateModal({ close, onCreate }: { close: () => void; onCreate: (data: ProjectForm) => Promise<void> }) {
+function CreateModal({
+  close, onCreate,
+}: {
+  close: () => void;
+  onCreate: (data: ProjectForm) => Promise<void>;
+}) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [concept, setConcept] = useState("");
@@ -1524,6 +1662,7 @@ function CreateModal({ close, onCreate }: { close: () => void; onCreate: (data: 
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const titles = ["产品目标", "交互与功能", "技术偏好", "现实约束", "确认需求"];
+  const dialogRef = useDialogFocus<HTMLDivElement>(close);
 
   function next() {
     if (step === 1 && (name.trim().length < 2 || concept.trim().length < 10)) {
@@ -1570,8 +1709,8 @@ function CreateModal({ close, onCreate }: { close: () => void; onCreate: (data: 
     }
   }
 
-  return <div className="backdrop"><div className="modal-box">
-    <header><div><span className="kicker">新建项目 · {step}/5</span><h2>{titles[step - 1]}</h2></div><button className="icon" aria-label="关闭新建项目" onClick={close}><X size={20} /></button></header>
+  return <div className="backdrop"><div ref={dialogRef} className="modal-box" role="dialog" aria-modal="true" aria-labelledby="create-project-title">
+    <header><div><span className="kicker">新建项目 · {step}/5</span><h2 id="create-project-title">{titles[step - 1]}</h2></div><button className="icon" aria-label="关闭新建项目" onClick={close}><X size={20} /></button></header>
     <div className="steps">{[1, 2, 3, 4, 5].map((value) => <i className={value <= step ? "filled" : ""} key={value} />)}</div>
     <div className="form-body">
       {step === 1 && <>

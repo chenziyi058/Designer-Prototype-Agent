@@ -23,6 +23,34 @@ test("starter preview markers are removed", async () => {
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
 
+test("visual workbench preserves the original empty-project structure without invented branding", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /home-empty/);
+  assert.match(page, /创建第一个智能产品原型/);
+  assert.match(page, /initial-view/);
+  assert.match(page, /Designer Prototype Agent 标志/);
+  assert.match(page, /IntroCover/);
+  assert.match(page, /任意点击进入工作台/);
+  assert.match(page, /intro-translate-x/);
+  assert.match(css, /\.app-shell/);
+  assert.match(css, /\.home-empty/);
+  assert.match(css, /\.brand-symbol/);
+  assert.match(css, /designer-prototype-agent-symbol\.png/);
+  assert.match(css, /\.intro-cover\.leaving \.intro-logo/);
+  assert.match(css, /translate 980ms cubic-bezier\(0\.16, 1, 0\.3, 1\)/);
+  assert.match(css, /scale 980ms cubic-bezier\(0\.16, 1, 0\.3, 1\)/);
+  assert.match(css, /\.app-root\.initial-view\s*\{\s*padding: 0;/);
+  assert.match(css, /\.initial-view \.app-shell[\s\S]*?border-radius: 0;[\s\S]*?box-shadow: none;/);
+  assert.match(css, /backdrop-filter: blur/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.doesNotMatch(page, /geometry-(stage|disc|sphere|capsule|chip)/);
+  assert.doesNotMatch(page, /brand-mark/);
+  assert.doesNotMatch(page, /landing-shell|workflow-overview/);
+});
+
 test("requirements can be explicitly confirmed and dropdowns are controlled", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /确认并创建新版本/);
