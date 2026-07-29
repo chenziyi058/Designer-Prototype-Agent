@@ -79,7 +79,7 @@ textarea:focus-visible,
 .app-root {
   position: relative;
   min-height: 100vh;
-  padding: clamp(14px, 2.6vw, 40px);
+  padding: 0;
   overflow-x: hidden;
 }
 
@@ -114,14 +114,14 @@ textarea:focus-visible,
 .app-shell {
   position: relative;
   z-index: 1;
-  width: min(1480px, 100%);
-  min-height: calc(100vh - clamp(28px, 5.2vw, 80px));
-  margin: 0 auto;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
   overflow: hidden;
-  border: 1px solid var(--white-line);
-  border-radius: var(--radius-xl);
+  border: 0;
+  border-radius: 0;
   background: rgba(241, 246, 248, 0.7);
-  box-shadow: var(--shadow-shell), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: none;
   backdrop-filter: blur(24px) saturate(112%);
   -webkit-backdrop-filter: blur(24px) saturate(112%);
 }
@@ -3681,12 +3681,12 @@ textarea:focus-visible,
 
 @media (max-width: 1024px) {
   .app-root {
-    padding: 14px;
+    padding: 0;
   }
 
   .app-shell {
-    min-height: calc(100vh - 28px);
-    border-radius: 26px;
+    min-height: 100vh;
+    border-radius: 0;
   }
 
   .content {
