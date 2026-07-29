@@ -1137,16 +1137,16 @@ textarea:focus-visible,
 @keyframes intro-logo-piece-top {
   0% {
     opacity: 0;
-    filter: blur(9px);
-    transform: translate3d(0, -34vh, 0) rotate(-2.6deg) scale(0.9);
+    filter: blur(13px);
+    transform: translate3d(0, -52vh, 0) rotate(-5.2deg) scale(0.78);
   }
   58% {
     opacity: 1;
-    filter: blur(0.7px);
-    transform: translate3d(0, 8px, 0) rotate(0.5deg) scale(1.008);
+    filter: blur(0.8px);
+    transform: translate3d(0, 16px, 0) rotate(1.05deg) scale(1.016);
   }
   78% {
-    transform: translate3d(0, -3px, 0) rotate(-0.16deg) scale(0.998);
+    transform: translate3d(0, -5px, 0) rotate(-0.28deg) scale(0.995);
   }
   100% {
     opacity: 1;
@@ -1158,16 +1158,16 @@ textarea:focus-visible,
 @keyframes intro-logo-piece-right {
   0% {
     opacity: 0;
-    filter: blur(9px);
-    transform: translate3d(34vw, 0, 0) rotate(3deg) scale(0.88);
+    filter: blur(13px);
+    transform: translate3d(48vw, 0, 0) rotate(5.8deg) scale(0.76);
   }
   61% {
     opacity: 1;
-    filter: blur(0.8px);
-    transform: translate3d(-8px, 0, 0) rotate(-0.55deg) scale(1.01);
+    filter: blur(0.9px);
+    transform: translate3d(-16px, 0, 0) rotate(-1.1deg) scale(1.018);
   }
   81% {
-    transform: translate3d(3px, 0, 0) rotate(0.18deg) scale(0.997);
+    transform: translate3d(5px, 0, 0) rotate(0.32deg) scale(0.994);
   }
   100% {
     opacity: 1;
@@ -1179,16 +1179,16 @@ textarea:focus-visible,
 @keyframes intro-logo-piece-bottom {
   0% {
     opacity: 0;
-    filter: blur(9px);
-    transform: translate3d(0, 34vh, 0) rotate(2.4deg) scale(0.9);
+    filter: blur(13px);
+    transform: translate3d(0, 50vh, 0) rotate(4.9deg) scale(0.78);
   }
   56% {
     opacity: 1;
-    filter: blur(0.8px);
-    transform: translate3d(0, -9px, 0) rotate(-0.48deg) scale(1.009);
+    filter: blur(0.9px);
+    transform: translate3d(0, -17px, 0) rotate(-1deg) scale(1.017);
   }
   79% {
-    transform: translate3d(0, 3px, 0) rotate(0.15deg) scale(0.997);
+    transform: translate3d(0, 5px, 0) rotate(0.3deg) scale(0.994);
   }
   100% {
     opacity: 1;
@@ -1200,16 +1200,16 @@ textarea:focus-visible,
 @keyframes intro-logo-piece-left {
   0% {
     opacity: 0;
-    filter: blur(9px);
-    transform: translate3d(-34vw, 0, 0) rotate(-3.2deg) scale(0.88);
+    filter: blur(13px);
+    transform: translate3d(-48vw, 0, 0) rotate(-6deg) scale(0.76);
   }
   60% {
     opacity: 1;
-    filter: blur(0.7px);
-    transform: translate3d(8px, 0, 0) rotate(0.58deg) scale(1.01);
+    filter: blur(0.8px);
+    transform: translate3d(16px, 0, 0) rotate(1.16deg) scale(1.018);
   }
   80% {
-    transform: translate3d(-3px, 0, 0) rotate(-0.17deg) scale(0.997);
+    transform: translate3d(-5px, 0, 0) rotate(-0.33deg) scale(0.994);
   }
   100% {
     opacity: 1;
@@ -1221,11 +1221,11 @@ textarea:focus-visible,
 @keyframes intro-logo-lock {
   0%, 62% {
     opacity: 0;
-    transform: scale(0.988);
+    transform: scale(0.975);
   }
   82% {
     opacity: 0.62;
-    transform: scale(1.004);
+    transform: scale(1.008);
   }
   100% {
     opacity: 1;
@@ -1251,7 +1251,7 @@ textarea:focus-visible,
 @keyframes intro-copy-arrive {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(22px);
   }
   to {
     opacity: 1;

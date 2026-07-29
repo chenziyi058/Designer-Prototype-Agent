@@ -49,6 +49,10 @@ test("visual workbench preserves the original empty-project structure without in
   assert.match(css, /@keyframes intro-logo-piece-bottom/);
   assert.match(css, /@keyframes intro-logo-piece-left/);
   assert.match(css, /@keyframes intro-logo-lock/);
+  assert.match(css, /translate3d\(0, -52vh, 0\)/);
+  assert.match(css, /translate3d\(48vw, 0, 0\)/);
+  assert.match(css, /translate3d\(0, 50vh, 0\)/);
+  assert.match(css, /translate3d\(-48vw, 0, 0\)/);
   assert.match(css, /translate 980ms cubic-bezier\(0\.16, 1, 0\.3, 1\)/);
   assert.match(css, /scale 980ms cubic-bezier\(0\.16, 1, 0\.3, 1\)/);
   assert.match(css, /\.app-root\.initial-view\s*\{\s*padding: 0;/);
