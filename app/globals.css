@@ -2627,24 +2627,24 @@ textarea:focus-visible,
   overflow: visible;
   border-radius: 47% 53% 51% 49% / 52% 46% 54% 48%;
   background:
-    radial-gradient(circle at 43% 34%, rgba(235, 238, 239, 0.16) 0 7%, transparent 21%),
-    radial-gradient(circle at 50% 51%, #252b2e 0 43%, #343b3f 47%, transparent 51%),
+    radial-gradient(circle at 43% 34%, rgba(255, 255, 255, 0.28) 0 7%, transparent 22%),
+    radial-gradient(circle at 50% 51%, #6d767b 0 43%, #92999d 47%, transparent 51%),
     conic-gradient(
       from 218deg,
-      #4c555a 0deg,
-      #aeb4b7 48deg,
-      #f1f2f2 86deg,
-      #7a8388 139deg,
-      #c9cdcf 201deg,
-      #444d52 267deg,
-      #91999d 321deg,
-      #4c555a 360deg
+      #7f888d 0deg,
+      #c4c9cb 48deg,
+      #f7f8f8 86deg,
+      #a7aeb1 139deg,
+      #dfe2e3 201deg,
+      #727b80 267deg,
+      #b9bfc1 321deg,
+      #7f888d 360deg
     );
   color: transparent !important;
   box-shadow:
-    0 0 0 1px rgba(50, 59, 64, 0.2),
-    0 0 18px rgba(64, 74, 79, 0.2),
-    inset 0 1px 4px rgba(255, 255, 255, 0.62) !important;
+    0 0 0 1px rgba(93, 103, 108, 0.17),
+    0 0 18px rgba(103, 114, 119, 0.16),
+    inset 0 1px 4px rgba(255, 255, 255, 0.76) !important;
   isolation: isolate;
   will-change: transform, filter, border-radius, box-shadow;
   animation: orb-organic-breathe calc(7.3s * var(--orb-tempo)) cubic-bezier(0.37, 0, 0.18, 1) infinite;
@@ -2664,12 +2664,12 @@ textarea:focus-visible,
   background:
     conic-gradient(
       from 42deg,
-      rgba(247, 248, 248, 0.88),
-      rgba(95, 105, 110, 0.18) 16%,
-      rgba(67, 77, 82, 0.74) 34%,
-      rgba(207, 212, 214, 0.86) 53%,
-      rgba(87, 97, 102, 0.3) 73%,
-      rgba(237, 239, 240, 0.8)
+      rgba(252, 252, 252, 0.94),
+      rgba(157, 166, 170, 0.22) 16%,
+      rgba(112, 122, 127, 0.64) 34%,
+      rgba(226, 229, 230, 0.9) 53%,
+      rgba(143, 152, 157, 0.28) 73%,
+      rgba(247, 248, 248, 0.88)
     );
   filter: blur(2px);
   transform-origin: 47% 54%;
@@ -2680,7 +2680,7 @@ textarea:focus-visible,
 .agent-orb::after {
   inset: -23%;
   z-index: -2;
-  border: 1px solid rgba(78, 89, 94, 0.16);
+  border: 1px solid rgba(126, 137, 142, 0.14);
   border-radius: 50%;
   opacity: 0;
   will-change: transform, opacity, border-color;
@@ -2692,8 +2692,8 @@ textarea:focus-visible,
   inset: 8%;
   border-radius: 43% 57% 48% 52% / 54% 43% 57% 46%;
   background:
-    radial-gradient(circle at 35% 21%, rgba(255, 255, 255, 0.44) 0 5%, transparent 25%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 43% 66%, rgba(184, 191, 194, 0.1));
+    radial-gradient(circle at 35% 21%, rgba(255, 255, 255, 0.62) 0 5%, transparent 25%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.3), transparent 43% 66%, rgba(219, 223, 225, 0.15));
   filter: blur(1.6px);
   mix-blend-mode: screen;
   opacity: 0.66;
@@ -2770,9 +2770,9 @@ textarea:focus-visible,
 .agent-orb.active {
   --orb-tempo: 0.62;
   box-shadow:
-    0 0 0 1px rgba(47, 56, 61, 0.24),
-    0 0 28px rgba(68, 79, 85, 0.31),
-    inset 0 1px 6px rgba(255, 255, 255, 0.74) !important;
+    0 0 0 1px rgba(91, 102, 107, 0.2),
+    0 0 28px rgba(113, 125, 130, 0.24),
+    inset 0 1px 6px rgba(255, 255, 255, 0.82) !important;
 }
 
 .agent-orb.active::before {
