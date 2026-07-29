@@ -42,8 +42,8 @@ test("visual workbench preserves the original empty-project structure without in
   assert.match(page, /ChenZiyi/);
   assert.match(page, /Human–Computer Interaction/);
   assert.match(page, /Smart Product Designer/);
-  assert.match(page, /ecnu-school-of-design\.jpg/);
-  assert.match(page, /华东师范大学设计学院/);
+  assert.match(page, /ecnu-round-mark\.png/);
+  assert.match(page, /华东师范大学校标/);
   assert.match(page, /intro-translate-x/);
   assert.match(css, /\.app-shell/);
   assert.match(css, /\.home-empty/);

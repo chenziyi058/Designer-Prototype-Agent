@@ -1143,8 +1143,8 @@ function IntroCover({
         {/* Static local identity mark keeps both hosted runtimes independent of image transforms. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/brand/ecnu-school-of-design.jpg"
-          alt="华东师范大学设计学院"
+          src="/brand/ecnu-round-mark.png"
+          alt="华东师范大学校标"
         />
       </div>
       <div className="intro-credit" aria-label="Developed by ChenZiyi">
