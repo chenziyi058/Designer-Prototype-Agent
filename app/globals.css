@@ -1299,6 +1299,96 @@ textarea:focus-visible,
   background: currentColor;
 }
 
+.intro-authorship {
+  position: absolute;
+  z-index: 2;
+  top: clamp(24px, 4vw, 44px);
+  right: clamp(24px, 4vw, 48px);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  animation: intro-corner-arrive 780ms cubic-bezier(0.22, 1, 0.36, 1) 920ms both;
+  transition:
+    opacity 360ms ease-out,
+    transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.intro-credit {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 15px;
+  color: rgba(38, 49, 58, 0.52);
+  line-height: 1;
+}
+
+.intro-credit::before {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 0;
+  width: 1px;
+  content: "";
+  background: rgba(38, 49, 58, 0.16);
+}
+
+.intro-credit span {
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.intro-credit strong {
+  color: rgba(38, 49, 58, 0.76);
+  font-size: 12px;
+  font-weight: 540;
+  letter-spacing: 0.06em;
+}
+
+.intro-credit small {
+  margin-top: 5px;
+  color: rgba(38, 49, 58, 0.38);
+  font-size: 7px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  line-height: 1.55;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.intro-institution {
+  width: 154px;
+  height: 96px;
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.intro-institution img {
+  position: absolute;
+  top: -27px;
+  left: 0;
+  width: 154px;
+  height: 154px;
+  display: block;
+  filter: grayscale(1) contrast(0.9);
+  mix-blend-mode: multiply;
+  opacity: 0.58;
+}
+
+@keyframes intro-corner-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .intro-cover.leaving {
   pointer-events: none;
 }
@@ -1332,6 +1422,12 @@ textarea:focus-visible,
   animation: none;
   opacity: 0;
   transform: translateY(18px);
+}
+
+.intro-cover.leaving .intro-authorship {
+  animation: none;
+  opacity: 0;
+  transform: translateY(-10px);
 }
 
 .empty > span {
@@ -4933,6 +5029,38 @@ textarea:focus-visible,
   .intro-copy p {
     max-width: 340px;
     font-size: 12px;
+  }
+
+  .intro-authorship {
+    top: 20px;
+    right: 18px;
+    gap: 11px;
+  }
+
+  .intro-institution {
+    width: 122px;
+    height: 78px;
+  }
+
+  .intro-institution img {
+    top: -22px;
+    width: 122px;
+    height: 122px;
+  }
+
+  .intro-credit {
+    gap: 3px;
+    padding-left: 11px;
+  }
+
+  .intro-credit strong {
+    font-size: 11px;
+  }
+
+  .intro-credit small {
+    margin-top: 3px;
+    font-size: 6px;
+    letter-spacing: 0.08em;
   }
 }
 

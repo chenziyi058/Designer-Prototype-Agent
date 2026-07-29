@@ -1138,6 +1138,25 @@ function IntroCover({
       <p>以 ProjectSpec 串联需求、架构、硬件、代码与文档，让概念更快抵达可验证原型。</p>
       <small>任意点击进入工作台</small>
     </div>
+    <div className="intro-authorship">
+      <div className="intro-institution">
+        {/* Static local identity mark keeps both hosted runtimes independent of image transforms. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/ecnu-school-of-design.jpg"
+          alt="华东师范大学设计学院"
+        />
+      </div>
+      <div className="intro-credit" aria-label="Developed by ChenZiyi">
+        <span>Developed by</span>
+        <strong>ChenZiyi</strong>
+        <small>
+          Human–Computer Interaction
+          <br />
+          Smart Product Designer
+        </small>
+      </div>
+    </div>
   </section>;
 }
 

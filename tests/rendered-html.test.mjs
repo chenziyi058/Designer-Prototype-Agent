@@ -38,6 +38,12 @@ test("visual workbench preserves the original empty-project structure without in
   assert.match(page, /intro-logo-piece bottom/);
   assert.match(page, /intro-logo-piece left/);
   assert.match(page, /任意点击进入工作台/);
+  assert.match(page, /Developed by/);
+  assert.match(page, /ChenZiyi/);
+  assert.match(page, /Human–Computer Interaction/);
+  assert.match(page, /Smart Product Designer/);
+  assert.match(page, /ecnu-school-of-design\.jpg/);
+  assert.match(page, /华东师范大学设计学院/);
   assert.match(page, /intro-translate-x/);
   assert.match(css, /\.app-shell/);
   assert.match(css, /\.home-empty/);
@@ -49,6 +55,7 @@ test("visual workbench preserves the original empty-project structure without in
   assert.match(css, /@keyframes intro-logo-piece-bottom/);
   assert.match(css, /@keyframes intro-logo-piece-left/);
   assert.match(css, /@keyframes intro-logo-lock/);
+  assert.match(css, /@keyframes intro-corner-arrive/);
   assert.match(css, /translate3d\(0, -52vh, 0\)/);
   assert.match(css, /translate3d\(48vw, 0, 0\)/);
   assert.match(css, /translate3d\(0, 50vh, 0\)/);
