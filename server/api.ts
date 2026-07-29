@@ -7,7 +7,9 @@ import {
 } from "./generator";
 import type {
   ArtifactDraft,
+  PlanningQuestion,
   ProjectCreateInput,
+  ProjectPlan,
   ProjectSpec,
   RequirementChange,
   RequirementExtraction,
@@ -241,6 +243,260 @@ function parseModelJson<T>(content: string): T {
   }
 }
 
+const planningPhases: ProjectPlan["phases"] = [
+  {
+    id: "requirements",
+    title: "澄清需求",
+    description: "识别目标、用户、场景与现实约束，形成可追踪的 ProjectSpec。",
+    tool: "Requirement Interpreter",
+  },
+  {
+    id: "architecture",
+    title: "规划系统",
+    description: "生成模块关系、数据流、控制流与安全状态。",
+    tool: "Architecture Generator",
+  },
+  {
+    id: "hardware",
+    title: "比较方案",
+    description: "给出器件与技术路线候选，未知参数继续标记为待确认。",
+    tool: "Hardware & BOM Advisor",
+  },
+  {
+    id: "implementation",
+    title: "生成工程",
+    description: "生成协议、固件、Python、界面、测试与文档资产。",
+    tool: "Engineering Generators",
+  },
+  {
+    id: "validation",
+    title: "验证与交付",
+    description: "运行确定性静态检查并汇总仍需人工或实物验证的边界。",
+    tool: "Deterministic Validators",
+  },
+];
+
+function fallbackPlanningQuestion(
+  id: string,
+  field: PlanningQuestion["field"],
+  question: string,
+  why: string,
+  values: Array<[string, string, boolean]>,
+): PlanningQuestion {
+  return {
+    id,
+    field,
+    question,
+    why,
+    options: values.map(([value, rationale, recommended]) => ({
+      label: value,
+      value,
+      rationale,
+      recommended,
+    })),
+  };
+}
+
+function fallbackProjectPlan(input: { description: string; name?: string }): ProjectPlan {
+  const proposedName = input.name?.trim() || input.description.trim().slice(0, 18) || "智能产品原型";
+  return {
+    proposed_name: proposedName,
+    summary: `围绕“${input.description.trim().slice(0, 100)}”建立从需求澄清到工程验证的原型开发计划。`,
+    intent: {
+      label: "智能产品原型开发",
+      confidence: 0.62,
+      rationale: "根据用户的产品描述做出的初步意图推测，需要在创建 ProjectSpec 前确认。",
+    },
+    phases: planningPhases,
+    ambiguities: [
+      fallbackPlanningQuestion(
+        "target-user",
+        "target_user",
+        "这个产品主要由谁使用？",
+        "目标用户会影响交互复杂度、界面表达与验证方式。",
+        [
+          ["个人用户", "适合以单人日常使用作为第一版假设。", true],
+          ["专业人员", "需要更明确的状态反馈、效率与可靠性要求。", false],
+          ["团队或公共场景", "需要进一步考虑多人操作、权限与耐久性。", false],
+          ["待确认", "先不把未经确认的用户类型写成事实。", false],
+        ],
+      ),
+      fallbackPlanningQuestion(
+        "usage-environment",
+        "usage_environment",
+        "第一版原型主要在哪种环境中验证？",
+        "环境会影响供电、结构、防护、无线连接与安全边界。",
+        [
+          ["室内桌面", "便于低压、有人值守地完成第一轮功能验证。", true],
+          ["移动或随身", "后续需要确认尺寸、重量、续航与结构约束。", false],
+          ["户外或复杂环境", "需要额外确认温度、防护、供电与可靠性要求。", false],
+          ["待确认", "暂时保留为待确认，不进行工程参数推断。", false],
+        ],
+      ),
+      fallbackPlanningQuestion(
+        "prototype-level",
+        "prototype_level",
+        "你希望第一阶段做到什么程度？",
+        "完成度决定本轮应生成的资产范围和验证深度。",
+        [
+          ["功能原型", "优先验证核心交互与工程可行性。", true],
+          ["概念验证", "先验证单一关键原理，范围最小。", false],
+          ["外观与功能联合原型", "同时考虑结构外观与功能整合，工作量更高。", false],
+        ],
+      ),
+      fallbackPlanningQuestion(
+        "controller",
+        "preferred_controller",
+        "主控方案现在需要指定吗？",
+        "未知器件不应被系统直接当成已确认型号。",
+        [
+          ["由 Agent 推荐", "先根据功能、接口与约束给出多个候选，再由你确认。", true],
+          ["暂不指定", "在系统架构确定前保持待确认。", false],
+          ["我已有主控", "创建后通过对话告诉 Agent 现有型号与来源。", false],
+        ],
+      ),
+    ],
+    assumptions: [
+      "第一版按低压、有人值守的功能原型规划。",
+      "未明确的电压、电流、引脚、型号、价格和兼容性均保持待确认。",
+    ],
+    draft: {
+      name: proposedName,
+      description: input.description.trim(),
+      target_user: "待确认",
+      usage_environment: "待确认",
+      experience_level: "初学者",
+      preferred_controller: "由 Agent 推荐",
+      communication_preference: "由 Agent 推荐",
+      prototype_level: "功能原型",
+      avoid_custom_pcb: true,
+      data_collection_required: true,
+      machine_learning_required: false,
+      control_interface_required: true,
+    },
+  };
+}
+
+function normalizeProjectPlan(
+  input: { description: string; name?: string },
+  value: Partial<ProjectPlan>,
+): ProjectPlan {
+  const fallback = fallbackProjectPlan(input);
+  const proposedName = typeof value.proposed_name === "string" && value.proposed_name.trim()
+    ? value.proposed_name.trim().slice(0, 120)
+    : fallback.proposed_name;
+  const ambiguities = Array.isArray(value.ambiguities)
+    ? value.ambiguities.slice(0, 4).flatMap((question, index) => {
+        if (!question || typeof question.question !== "string" || !Array.isArray(question.options)) return [];
+        const field = question.field;
+        const allowedFields: PlanningQuestion["field"][] = [
+          "target_user", "usage_environment", "prototype_level",
+          "preferred_controller", "communication_preference",
+        ];
+        if (!allowedFields.includes(field)) return [];
+        const options = question.options.slice(0, 4).flatMap((option) => {
+          if (!option || typeof option.value !== "string" || !option.value.trim()) return [];
+          const label = typeof option.label === "string" && option.label.trim()
+            ? option.label.trim().slice(0, 80)
+            : option.value.trim().slice(0, 80);
+          return [{
+            label,
+            value: label,
+            rationale: typeof option.rationale === "string"
+              ? option.rationale.trim().slice(0, 300)
+              : "这是一个待用户确认的推测。",
+            recommended: option.recommended === true,
+          }];
+        });
+        if (options.length < 2) return [];
+        if (!options.some((option) => option.recommended)) options[0].recommended = true;
+        return [{
+          id: typeof question.id === "string" && question.id.trim()
+            ? question.id.trim().slice(0, 80)
+            : `ambiguity-${index + 1}`,
+          field,
+          question: question.question.trim().slice(0, 240),
+          why: typeof question.why === "string"
+            ? question.why.trim().slice(0, 400)
+            : "该信息会影响后续工程方案。",
+          options,
+        }];
+      })
+    : [];
+  const draftSource = value.draft && typeof value.draft === "object" ? value.draft : {};
+  return {
+    proposed_name: proposedName,
+    summary: typeof value.summary === "string" && value.summary.trim()
+      ? value.summary.trim().slice(0, 1000)
+      : fallback.summary,
+    intent: {
+      label: typeof value.intent?.label === "string" && value.intent.label.trim()
+        ? value.intent.label.trim().slice(0, 120)
+        : fallback.intent.label,
+      confidence: typeof value.intent?.confidence === "number"
+        ? Math.min(1, Math.max(0, value.intent.confidence))
+        : fallback.intent.confidence,
+      rationale: typeof value.intent?.rationale === "string" && value.intent.rationale.trim()
+        ? value.intent.rationale.trim().slice(0, 500)
+        : fallback.intent.rationale,
+    },
+    phases: planningPhases,
+    ambiguities: ambiguities.length ? ambiguities : fallback.ambiguities,
+    assumptions: Array.isArray(value.assumptions)
+      ? value.assumptions.filter((item): item is string => typeof item === "string").slice(0, 6)
+      : fallback.assumptions,
+    draft: {
+      ...fallback.draft,
+      ...draftSource,
+      name: proposedName,
+      description: input.description.trim(),
+    },
+  };
+}
+
+async function planProject(
+  env: RuntimeEnvironment,
+  input: { description: string; name?: string },
+) {
+  const fallback = fallbackProjectPlan(input);
+  if (!env.model.configured) {
+    return { plan: fallback, model: "deterministic-fallback", usage: {} };
+  }
+  const prompt = `把用户的模糊产品想法整理为一个“确认后才执行”的智能产品原型计划。
+只返回 JSON，包含 proposed_name,summary,intent,ambiguities,assumptions,draft。
+intent 必须包含 label,confidence(0-1),rationale。
+ambiguities 最多 4 个，每个包含 id,field,question,why,options；field 只能是
+target_user,usage_environment,prototype_level,preferred_controller,communication_preference。
+每个 options 提供 2-4 个推测选择，包含 label,value,rationale,recommended，恰好一个 recommended=true。
+这些只是推测，不得表述为用户事实。不得编造具体器件参数、价格、库存、引脚、电压、电流或兼容性。
+不要主动推荐或猜测预算数字；预算只能来自用户明确输入。
+draft 使用 ProjectCreateInput 字段，只填产品层信息；未知字段写“待确认”或“由 Agent 推荐”。
+
+用户给出的名称：${input.name?.trim() || "未指定"}
+用户描述：${input.description.trim()}`;
+  try {
+    const output = await deepSeek(
+      env,
+      [{ role: "system", content: SYSTEM_GUARDRAILS }, { role: "user", content: prompt }],
+      "reasoning",
+      true,
+      3200,
+    );
+    return {
+      plan: normalizeProjectPlan(input, parseModelJson<Partial<ProjectPlan>>(output.content)),
+      model: output.model,
+      usage: output.usage,
+    };
+  } catch (error) {
+    return {
+      plan: fallback,
+      model: "deterministic-fallback-after-error",
+      usage: {},
+      warning: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 function fallbackExtraction(input: ProjectCreateInput): RequirementExtraction {
   return {
     product_goal: `验证“${input.name}”的核心交互和工程可行性`,
@@ -315,6 +571,11 @@ preferred_controller,assumptions,must_confirm_questions,safety_flags。
   ];
   for (const key of arrayKeys) {
     if (!Array.isArray(extraction[key])) (extraction as unknown as Json)[key] = [];
+  }
+  if (input.budget_cny === undefined) {
+    extraction.assumptions = extraction.assumptions.filter(
+      (item) => !/(?:预算|成本|价格).{0,24}\d/i.test(item),
+    );
   }
   return { extraction, model: output.model, usage: output.usage };
 }
@@ -439,6 +700,194 @@ function affectedModules(message: string) {
   const lower = message.toLowerCase();
   const output = rules.flatMap(([keys, modules]) => keys.some((key) => lower.includes(key)) ? modules : []);
   return [...new Set(output.length ? output : ["ProjectSpec", "需求文档", "测试计划"])];
+}
+
+function fallbackConversationIntent(message: string) {
+  const lower = message.toLowerCase();
+  if (/(规划|下一步|从哪里开始|先做什么)/i.test(lower)) {
+    return { label: "规划项目下一步", confidence: 0.82, rationale: "消息明确要求梳理推进顺序，而不是立即执行修改。" };
+  }
+  if (/(生成|创建|输出|写).*(架构|硬件|bom|接线|协议|固件|python|界面|测试|文档)/i.test(lower)) {
+    return { label: "生成工程资产", confidence: 0.78, rationale: "消息包含生成动作与具体工程模块。" };
+  }
+  if (/(验证|检查|测试|编译)/i.test(lower)) {
+    return { label: "执行工程验证", confidence: 0.78, rationale: "消息包含验证、检查或测试意图。" };
+  }
+  if (/(改|调整|增加|删除|预算|用户|场景|主控|需要|不需要)/i.test(lower)) {
+    return { label: "修改产品需求", confidence: 0.72, rationale: "消息可能改变 ProjectSpec 或派生工程资产。" };
+  }
+  return { label: "咨询当前方案", confidence: 0.58, rationale: "暂未识别到明确执行动作，先作为工程咨询处理。" };
+}
+
+function inferredToolCalls(message: string, shouldUpdateSpec: boolean): NonNullable<RequirementChange["suggested_tools"]> {
+  const tools: NonNullable<RequirementChange["suggested_tools"]> = [];
+  if (shouldUpdateSpec) {
+    tools.push({
+      id: "confirm-spec-change",
+      label: "确认并更新 ProjectSpec",
+      description: "确认后创建新的 ProjectSpec 版本，并标记受影响模块。",
+      action: "confirm_spec",
+      requires_confirmation: true,
+    });
+  }
+  const moduleRules: Array<[RegExp, string, string]> = [
+    [/架构|系统流程|状态机/i, "architecture", "生成系统架构"],
+    [/硬件|器件|元件|选型|接线/i, "hardware", "生成硬件方案"],
+    [/\bbom\b|物料|成本/i, "bom", "生成 BOM"],
+    [/协议|通信/i, "protocol", "生成通信协议"],
+    [/固件|platformio/i, "firmware", "生成固件代码"],
+    [/python|数据采集|训练|推理/i, "python", "生成 Python 工程"],
+    [/界面|控制面板|ui/i, "ui", "生成控制界面"],
+    [/测试计划|测试用例|验收/i, "tests", "生成测试资产"],
+    [/文档|说明书|报告/i, "docs", "生成项目文档"],
+  ];
+  const matchedModule = moduleRules.find(([pattern]) => pattern.test(message));
+  if (matchedModule && /(生成|创建|输出|写|继续)/i.test(message)) {
+    tools.push({
+      id: `generate-${matchedModule[1]}`,
+      label: matchedModule[2],
+      description: "基于当前已确认的 ProjectSpec 生成对应工程文件，结果仍需用户确认。",
+      action: "generate",
+      target: matchedModule[1],
+      requires_confirmation: true,
+    });
+  }
+  if (/(验证|检查|测试|编译)/i.test(message)) {
+    const target = /协议/i.test(message) ? "protocol" : /硬件|电源|引脚|接线/i.test(message) ? "hardware" : "code";
+    tools.push({
+      id: `validate-${target}`,
+      label: target === "protocol" ? "验证通信协议" : target === "hardware" ? "验证硬件约束" : "运行代码静态验证",
+      description: "执行确定性检查；云端不会伪装运行 Python、PlatformIO 或真实硬件。",
+      action: "validate",
+      target,
+      requires_confirmation: false,
+    });
+  }
+  if (/(规划|下一步|从哪里开始|先做什么)/i.test(message)) {
+    tools.push({
+      id: "open-requirements",
+      label: "查看需求澄清队列",
+      description: "打开当前 ProjectSpec 的待确认项，先解决会阻塞后续架构和选型的问题。",
+      action: "open_section",
+      target: "需求",
+      requires_confirmation: false,
+    });
+  }
+  return tools.slice(0, 3);
+}
+
+function normalizeRequirementChange(
+  change: RequirementChange,
+  message: string,
+  modules: string[],
+): RequirementChange {
+  const fallbackIntent = fallbackConversationIntent(message);
+  const modelSuggestions = Array.isArray(change.suggestions)
+    ? change.suggestions.slice(0, 4).flatMap((item) => {
+        if (!item || typeof item.value !== "string" || !item.value.trim()) return [];
+        return [{
+          label: typeof item.label === "string" && item.label.trim()
+            ? item.label.trim().slice(0, 100)
+            : item.value.trim().slice(0, 100),
+          value: item.value.trim().slice(0, 500),
+          rationale: typeof item.rationale === "string"
+            ? item.rationale.trim().slice(0, 500)
+            : "这是 Agent 对模糊意图的推测，需要用户确认。",
+          recommended: item.recommended === true,
+        }];
+      })
+    : [];
+  const suggestions = modelSuggestions.length
+    ? modelSuggestions
+    : /(规划|下一步|从哪里开始|先做什么)/i.test(message)
+      ? [
+          {
+            label: "先确认感知目标",
+            value: "先确认产品需要感知的现象、安装位置和不可接受的采集方式；具体传感器型号稍后比较。",
+            rationale: "输入定义不清会直接影响架构、器件类型、数据处理和测试方法。",
+            recommended: true,
+          },
+          {
+            label: "先确认反馈方式",
+            value: "先确认提醒希望采用灯光、声音、触觉还是界面，以及哪些方式不能接受。",
+            rationale: "反馈方式会影响交互、执行器、电源和安全要求。",
+            recommended: false,
+          },
+          {
+            label: "先确认使用边界",
+            value: "先确认使用环境、供电条件、尺寸和是否需要随身移动。",
+            rationale: "现实约束会缩小硬件和结构方案范围。",
+            recommended: false,
+          },
+        ]
+      : [];
+  if (suggestions.length && !suggestions.some((item) => item.recommended)) {
+    suggestions[0].recommended = true;
+  }
+  const inferred = inferredToolCalls(message, change.should_update_spec === true);
+  const allowedActions = new Set(["confirm_spec", "generate", "validate", "open_section"]);
+  const allowedGenerateTargets = new Set([
+    "architecture", "hardware", "bom", "protocol", "firmware", "python", "ui", "tests", "docs",
+  ]);
+  const allowedValidateTargets = new Set(["hardware", "protocol", "code"]);
+  const allowedSectionTargets = new Set([
+    "项目概览", "需求", "系统架构", "硬件方案", "BOM", "接线", "通信协议",
+    "固件代码", "Python 程序", "控制界面", "测试", "文档", "验证记录",
+    ...allowedGenerateTargets,
+  ]);
+  const suggestedTools = Array.isArray(change.suggested_tools)
+    ? change.suggested_tools.slice(0, 3).flatMap((item) => {
+        if (!item || !allowedActions.has(item.action) || typeof item.label !== "string") return [];
+        if (item.action === "confirm_spec" && change.should_update_spec !== true) return [];
+        if (item.action === "generate" && !allowedGenerateTargets.has(item.target || "")) return [];
+        if (item.action === "validate" && !allowedValidateTargets.has(item.target || "")) return [];
+        if (item.action === "open_section" && !allowedSectionTargets.has(item.target || "")) return [];
+        return [{
+          id: typeof item.id === "string" && item.id.trim()
+            ? item.id.trim().slice(0, 100)
+            : `tool-${crypto.randomUUID().slice(0, 8)}`,
+          label: item.label.trim().slice(0, 120),
+          description: typeof item.description === "string"
+            ? item.description.trim().slice(0, 500)
+            : "执行前请确认该工具与当前目标一致。",
+          action: item.action,
+          target: typeof item.target === "string" ? item.target.trim().slice(0, 80) : undefined,
+          requires_confirmation: item.requires_confirmation !== false,
+        }];
+      })
+    : [];
+  const mergedTools = [...inferred];
+  for (const tool of suggestedTools) {
+    if (!mergedTools.some((item) => item.action === tool.action && item.target === tool.target)) {
+      mergedTools.push(tool);
+    }
+  }
+  return {
+    ...change,
+    reply: typeof change.reply === "string" && change.reply.trim()
+      ? change.reply.trim().slice(0, 4000)
+      : "我已分析你的意图，请先核对推测和计划，再决定是否执行。",
+    should_update_spec: change.should_update_spec === true,
+    affected_modules: [...new Set([...(change.affected_modules || []), ...modules])],
+    requires_confirmation: change.requires_confirmation !== false,
+    intent: {
+      label: typeof change.intent?.label === "string" && change.intent.label.trim()
+        ? change.intent.label.trim().slice(0, 120)
+        : fallbackIntent.label,
+      confidence: typeof change.intent?.confidence === "number"
+        ? Math.min(1, Math.max(0, change.intent.confidence))
+        : fallbackIntent.confidence,
+      rationale: typeof change.intent?.rationale === "string" && change.intent.rationale.trim()
+        ? change.intent.rationale.trim().slice(0, 500)
+        : fallbackIntent.rationale,
+    },
+    ambiguous: change.ambiguous === true || suggestions.length > 0,
+    suggestions,
+    suggested_tools: mergedTools.slice(0, 3),
+    next_question: typeof change.next_question === "string" && change.next_question.trim()
+      ? change.next_question.trim().slice(0, 500)
+      : suggestions[0]?.value,
+  };
 }
 
 function userTraced<T>(value: T, message: string): Traced<T> {
@@ -591,12 +1040,12 @@ async function analyzeMessage(
 ) {
   if (!env.model.configured) {
     return {
-      change: {
+      change: normalizeRequirementChange({
         reply: `已分析该消息，预计影响：${modules.join("、")}。站点尚未配置 DeepSeek，因此没有自动修改 ProjectSpec。`,
         should_update_spec: false,
         affected_modules: modules,
         requires_confirmation: true,
-      } satisfies RequirementChange,
+      }, message, modules),
       model: "deterministic-fallback",
       usage: {},
     };
@@ -611,8 +1060,12 @@ async function analyzeMessage(
           content: `只能通过给定字段提出有限的 ProjectSpec 修改。只返回 JSON：
 reply,should_update_spec,product_goal,target_user,usage_environment,budget_cny,preferred_controller,
 data_collection_required,machine_learning_required,control_interface_required,add_open_questions,
-resolved_open_questions,affected_modules,requires_confirmation。
-没有明确修改意图或用户明确说“不修改”时 should_update_spec=false。`,
+resolved_open_questions,affected_modules,requires_confirmation,intent,ambiguous,suggestions,suggested_tools,next_question。
+intent 包含 label,confidence,rationale。遇到模糊意图时 ambiguous=true，并在 suggestions 中给出 2-4 个推测，
+每项包含 label,value,rationale,recommended，恰好一个 recommended=true。
+suggested_tools 只能使用 confirm_spec,generate,validate,open_section 四种 action，包含 id,label,description,
+action,target,requires_confirmation。没有明确修改意图或用户明确说“不修改”时 should_update_spec=false。
+不要直接声称工具已经执行，只能提出下一步工具计划。`,
         },
         {
           role: "user",
@@ -624,18 +1077,22 @@ resolved_open_questions,affected_modules,requires_confirmation。
       1200,
     );
     return {
-      change: parseModelJson<RequirementChange>(output.content),
+      change: normalizeRequirementChange(
+        parseModelJson<RequirementChange>(output.content),
+        message,
+        modules,
+      ),
       model: output.model,
       usage: output.usage,
     };
   } catch (error) {
     return {
-      change: {
+      change: normalizeRequirementChange({
         reply: `DeepSeek 本次暂不可用，已保留消息且未修改 ProjectSpec。预计影响：${modules.join("、")}。`,
         should_update_spec: false,
         affected_modules: modules,
         requires_confirmation: true,
-      } satisfies RequirementChange,
+      }, message, modules),
       model: "deterministic-fallback-after-error",
       usage: {},
       warning: error instanceof Error ? error.message : String(error),
@@ -883,6 +1340,24 @@ export async function handleApi(
       });
     }
 
+    if (url.pathname === "/api/planning" && method === "POST") {
+      const payload = await readBody<{ description?: string; name?: string }>(request);
+      const description = payload.description?.trim() || "";
+      if (description.length < 10 || description.length > 6000) {
+        throw new ApiError(422, "请用 10–6000 个字符描述你想开发的产品");
+      }
+      if (payload.name && payload.name.length > 120) {
+        throw new ApiError(422, "项目名称不能超过 120 个字符");
+      }
+      const result = await planProject(env, { description, name: payload.name });
+      return jsonResponse({
+        ...result.plan,
+        provider: providerForModel(result.model),
+        model: result.model,
+        warning: result.warning,
+      });
+    }
+
     try {
       await env.database.initialize();
     } catch (error) {
@@ -1118,14 +1593,27 @@ export async function handleApi(
             : ""
       );
       const createdAt = timestamp();
+      const assistantMessageId = uid();
+      const conversation = {
+        intent: analyzed.change.intent,
+        ambiguous: analyzed.change.ambiguous ?? false,
+        suggestions: analyzed.change.suggestions || [],
+        suggested_tools: analyzed.change.suggested_tools || [],
+        next_question: analyzed.change.next_question,
+        proposal_message: payload.content,
+        proposal_pending: analyzed.change.should_update_spec && !shouldApply,
+      };
       await env.database.batch([
         env.database.prepare(
           "INSERT INTO messages (id, project_id, role, content, metadata, created_at) VALUES (?, ?, 'user', ?, '{}', ?)",
         ).bind(uid(), projectId, payload.content, createdAt),
         env.database.prepare(
           "INSERT INTO messages (id, project_id, role, content, metadata, created_at) VALUES (?, ?, 'assistant', ?, ?, ?)",
-        ).bind(uid(), projectId, reply, JSON.stringify({
-          affected_modules: modules, provider: providerForModel(analyzed.model), model: analyzed.model,
+        ).bind(assistantMessageId, projectId, reply, JSON.stringify({
+          affected_modules: modules,
+          provider: providerForModel(analyzed.model),
+          model: analyzed.model,
+          conversation,
         }), timestamp()),
       ]);
       await recordRun(env, projectId, {
@@ -1138,7 +1626,11 @@ export async function handleApi(
         reply, affected_modules: modules,
         requires_confirmation: analyzed.change.requires_confirmation ?? true,
         provider: providerForModel(analyzed.model),
-        model: analyzed.model, spec_updated: shouldApply, spec_version: version,
+        model: analyzed.model,
+        spec_updated: shouldApply,
+        spec_version: version,
+        message_id: assistantMessageId,
+        conversation,
       });
     }
 

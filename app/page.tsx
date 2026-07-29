@@ -112,6 +112,65 @@ type ChatMessage = {
   role: "user" | "agent";
   text: string;
   affected?: string[];
+  intent?: {
+    label: string;
+    confidence: number;
+    rationale: string;
+  };
+  ambiguous?: boolean;
+  suggestions?: ConversationSuggestion[];
+  tools?: ConversationToolCall[];
+  nextQuestion?: string;
+  proposalMessage?: string;
+  proposalPending?: boolean;
+};
+type ConversationSuggestion = {
+  label: string;
+  value: string;
+  rationale: string;
+  recommended: boolean;
+};
+type ConversationToolCall = {
+  id: string;
+  label: string;
+  description: string;
+  action: "confirm_spec" | "generate" | "validate" | "open_section";
+  target?: string;
+  requires_confirmation: boolean;
+};
+type PlanningQuestion = {
+  id: string;
+  field:
+    | "target_user"
+    | "usage_environment"
+    | "prototype_level"
+    | "preferred_controller"
+    | "communication_preference"
+    | "budget_cny";
+  question: string;
+  why: string;
+  options: ConversationSuggestion[];
+};
+type ProjectPlan = {
+  proposed_name: string;
+  summary: string;
+  intent: {
+    label: string;
+    confidence: number;
+    rationale: string;
+  };
+  phases: Array<{
+    id: string;
+    title: string;
+    description: string;
+    tool: string;
+  }>;
+  ambiguities: PlanningQuestion[];
+  assumptions: string[];
+  draft: Partial<ProjectForm>;
+  provider: string;
+  model: string;
+  warning?: string;
 };
 type ComponentRecommendation = {
   question: string;
@@ -132,20 +191,20 @@ type ComponentRecommendation = {
 type ProjectForm = {
   name: string;
   description: string;
-  target_user: string;
-  usage_environment: string;
+  target_user?: string;
+  usage_environment?: string;
   budget_cny?: number;
-  experience_level: string;
-  preferred_controller: string;
-  communication_preference: string;
-  existing_components: string[];
-  size_constraints: string;
-  power_constraints: string;
-  prototype_level: string;
-  avoid_custom_pcb: boolean;
-  data_collection_required: boolean;
-  machine_learning_required: boolean;
-  control_interface_required: boolean;
+  experience_level?: string;
+  preferred_controller?: string;
+  communication_preference?: string;
+  existing_components?: string[];
+  size_constraints?: string;
+  power_constraints?: string;
+  prototype_level?: string;
+  avoid_custom_pcb?: boolean;
+  data_collection_required?: boolean;
+  machine_learning_required?: boolean;
+  control_interface_required?: boolean;
 };
 
 type Capabilities = {
@@ -382,7 +441,22 @@ export default function HomePage() {
           request<ProjectSummary>(`/api/projects/${projectId}`),
           request<ProjectSpec>(`/api/projects/${projectId}/spec`),
           request<Artifact[]>(`/api/projects/${projectId}/artifacts`),
-          request<Array<{ role: string; content: string; metadata?: { affected_modules?: string[] } }>>(`/api/projects/${projectId}/messages`),
+          request<Array<{
+            role: string;
+            content: string;
+            metadata?: {
+              affected_modules?: string[];
+              conversation?: {
+                intent?: ChatMessage["intent"];
+                ambiguous?: boolean;
+                suggestions?: ConversationSuggestion[];
+                suggested_tools?: ConversationToolCall[];
+                next_question?: string;
+                proposal_message?: string;
+                proposal_pending?: boolean;
+              };
+            };
+          }>>(`/api/projects/${projectId}/messages`),
           request<AgentRun[]>(`/api/projects/${projectId}/agent-runs`),
           request<Validation[]>(`/api/projects/${projectId}/validations`),
           request<SpecVersion[]>(`/api/projects/${projectId}/spec/versions`),
@@ -397,6 +471,13 @@ export default function HomePage() {
         role: item.role === "user" ? "user" : "agent",
         text: item.content,
         affected: item.metadata?.affected_modules,
+        intent: item.metadata?.conversation?.intent,
+        ambiguous: item.metadata?.conversation?.ambiguous,
+        suggestions: item.metadata?.conversation?.suggestions,
+        tools: item.metadata?.conversation?.suggested_tools,
+        nextQuestion: item.metadata?.conversation?.next_question,
+        proposalMessage: item.metadata?.conversation?.proposal_message,
+        proposalPending: item.metadata?.conversation?.proposal_pending,
       })));
       localStorage.setItem("dpa-current-project", projectId);
     } catch (reason) {
@@ -507,11 +588,24 @@ export default function HomePage() {
       body: JSON.stringify(data),
     });
     setProjects((items) => [result, ...items]);
-    setProvider(result.agent.provider === "deepseek" ? `DeepSeek · ${result.agent.model}` : "Mock 模式");
+    setProvider(
+      result.agent.provider === "deepseek"
+        ? `DeepSeek · ${result.agent.model}`
+        : result.agent.provider === "deterministic"
+          ? "DeepSeek 暂时降级"
+          : "Mock 模式",
+    );
     await loadProject(result.id);
     setMessages([{ role: "agent", text: result.agent.summary }]);
     setCreateOpen(false);
     setActive("项目概览");
+  }
+
+  async function planNewProject(description: string) {
+    return await request<ProjectPlan>("/api/planning", {
+      method: "POST",
+      body: JSON.stringify({ description }),
+    });
   }
 
   async function deleteCurrentProject() {
@@ -547,17 +641,16 @@ export default function HomePage() {
     }
   }
 
-  async function send(event: FormEvent) {
-    event.preventDefault();
-    if (!message.trim() || busy) return;
+  async function sendContent(content: string, applyChange = false) {
+    if (!content.trim() || busy) return;
     if (!project) {
       setCreateOpen(true);
       return;
     }
-    const content = message.trim();
-    setMessages((items) => [...items, { role: "user", text: content }]);
+    const normalizedContent = content.trim();
+    setMessages((items) => [...items, { role: "user", text: normalizedContent }]);
     setMessage("");
-    setBusy("DeepSeek 正在分析并更新 ProjectSpec");
+    setBusy(applyChange ? "DeepSeek 正在确认计划并更新 ProjectSpec" : "DeepSeek 正在识别意图并规划下一步");
     try {
       const result = await request<{
         reply: string;
@@ -566,15 +659,37 @@ export default function HomePage() {
         model: string;
         spec_updated: boolean;
         spec_version: number;
+        conversation?: {
+          intent?: ChatMessage["intent"];
+          ambiguous?: boolean;
+          suggestions?: ConversationSuggestion[];
+          suggested_tools?: ConversationToolCall[];
+          next_question?: string;
+          proposal_message?: string;
+          proposal_pending?: boolean;
+        };
       }>(`/api/projects/${project.id}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content, apply_change: true }),
+        body: JSON.stringify({ content: normalizedContent, apply_change: applyChange }),
       });
-      setProvider(result.provider === "deepseek" ? `DeepSeek · ${result.model}` : "Mock 模式");
+      setProvider(
+        result.provider === "deepseek"
+          ? `DeepSeek · ${result.model}`
+          : result.provider === "deterministic"
+            ? "DeepSeek 暂时降级"
+            : "Mock 模式",
+      );
       setMessages((items) => [...items, {
         role: "agent",
         text: result.reply,
         affected: result.affected_modules,
+        intent: result.conversation?.intent,
+        ambiguous: result.conversation?.ambiguous,
+        suggestions: result.conversation?.suggestions,
+        tools: result.conversation?.suggested_tools,
+        nextQuestion: result.conversation?.next_question,
+        proposalMessage: result.conversation?.proposal_message,
+        proposalPending: result.conversation?.proposal_pending,
       }]);
       if (result.spec_updated) await refreshCurrent();
     } catch (reason) {
@@ -584,6 +699,36 @@ export default function HomePage() {
       }]);
     } finally {
       setBusy("");
+    }
+  }
+
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    await sendContent(message, false);
+  }
+
+  async function executeConversationTool(tool: ConversationToolCall, sourceMessage?: string) {
+    if (busy) return;
+    if (tool.action === "confirm_spec") {
+      if (!sourceMessage) return;
+      await sendContent(`确认执行上述计划：${sourceMessage}`, true);
+      return;
+    }
+    if (tool.action === "generate" && tool.target) {
+      const targetSection = Object.entries(moduleConfig)
+        .find(([, config]) => config.module === tool.target)?.[0];
+      if (targetSection) setActive(targetSection);
+      await generateCurrent(tool.target);
+      return;
+    }
+    if (tool.action === "validate" && ["hardware", "protocol", "code"].includes(tool.target ?? "")) {
+      await validateCurrent(tool.target as "hardware" | "protocol" | "code");
+      return;
+    }
+    if (tool.action === "open_section" && tool.target) {
+      const exact = nav.find(([label]) => label === tool.target)?.[0];
+      const byModule = Object.entries(moduleConfig).find(([, config]) => config.module === tool.target)?.[0];
+      setActive(exact ?? byModule ?? "项目概览");
     }
   }
 
@@ -792,6 +937,13 @@ export default function HomePage() {
               spec={spec}
               artifacts={artifacts}
               validations={validations}
+              messages={messages}
+              message={message}
+              busy={Boolean(busy)}
+              onMessageChange={setMessage}
+              onSend={send}
+              onSuggestion={(value) => void sendContent(`我选择：${value}`, false)}
+              onTool={(tool, sourceMessage) => void executeConversationTool(tool, sourceMessage)}
               setActive={setActive}
               exportProject={exportProject}
               onDelete={() => setDeleteOpen(true)}
@@ -828,24 +980,20 @@ export default function HomePage() {
               <button className="icon" aria-label="关闭 Agent" onClick={() => setAgentOpen((open) => !open)}><X size={18} /></button>
             </div>
             <div className="context"><GitBranch size={15} />{project ? `已连接 ProjectSpec v${project.current_spec_version}` : "创建项目后连接上下文"}</div>
-            <div className="chat">
-              {messages.length === 0 && <div className="message assistant"><span><Bot size={14} /></span><p>告诉我需要修改的产品要求，或询问当前工程方案。我会先分析影响，再更新 ProjectSpec。</p></div>}
-              {messages.map((item, index) => (
-                <div key={`${item.role}-${index}`}>
-                  <div className={`message ${item.role === "agent" ? "assistant" : "user"}`}>
-                    {item.role === "agent" && <span><Bot size={14} /></span>}
-                    <p>{item.text}</p>
-                  </div>
-                  {item.affected && item.affected.length > 0 && (
-                    <div className="impact"><small>受影响模块</small><div>{item.affected.map((value) => <em key={value}>{value}</em>)}</div></div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <form className="composer" onSubmit={send}>
-              <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="例如：预算降到 1000 元以内…" />
-              <div><small>{busy ? "Agent 正在工作…" : "发送后自动记录 ProjectSpec 新版本"}</small><button aria-label="发送消息" disabled={Boolean(busy)}><Send size={16} /></button></div>
-            </form>
+            <ConversationThread
+              messages={messages}
+              compact
+              busy={Boolean(busy)}
+              onSuggestion={(value) => void sendContent(`我选择：${value}`, false)}
+              onTool={(tool, sourceMessage) => void executeConversationTool(tool, sourceMessage)}
+            />
+            <ConversationComposer
+              value={message}
+              busy={Boolean(busy)}
+              onChange={setMessage}
+              onSubmit={send}
+              compact
+            />
             </aside>
           )}
         </div>
@@ -855,7 +1003,11 @@ export default function HomePage() {
         </footer>
       </section>
 
-      {createOpen && <CreateModal close={() => setCreateOpen(false)} onCreate={createProject} />}
+      {createOpen && <PlanningCreateModal
+        close={() => setCreateOpen(false)}
+        onPlan={planNewProject}
+        onCreate={createProject}
+      />}
       {deleteOpen && project && <DeleteProjectModal
         project={project}
         disabled={Boolean(busy)}
@@ -917,13 +1069,152 @@ function EmptyHome({ loading, onCreate }: { loading: boolean; onCreate: () => vo
   </div>;
 }
 
+function ConversationThread({
+  messages,
+  busy,
+  compact = false,
+  onSuggestion,
+  onTool,
+}: {
+  messages: ChatMessage[];
+  busy: boolean;
+  compact?: boolean;
+  onSuggestion: (value: string) => void;
+  onTool: (tool: ConversationToolCall, sourceMessage?: string) => void;
+}) {
+  const visibleMessages = compact ? messages.slice(-5) : messages;
+  return <div className={`chat conversation-thread ${compact ? "compact" : ""}`}>
+    {visibleMessages.length === 0 && (
+      <div className="conversation-welcome">
+        <span><Bot size={16} /></span>
+        <div>
+          <strong>先告诉我你想推进什么</strong>
+          <p>我会先形成计划、识别模糊意图并提供推测选项，不会直接改写 ProjectSpec。</p>
+          <div>
+            {["规划下一阶段", "处理当前待确认项", "检查哪些内容还不能执行"].map((value) => (
+              <button type="button" disabled={busy} key={value} onClick={() => onSuggestion(value)}>
+                {value}<ArrowRight size={12} />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+    {visibleMessages.map((item, index) => {
+      const tools = (item.tools ?? []).filter(
+        (tool) => tool.action !== "confirm_spec" || item.proposalPending,
+      );
+      return <div className="conversation-turn" key={`${item.role}-${index}`}>
+        <div className={`message ${item.role === "agent" ? "assistant" : "user"}`}>
+          {item.role === "agent" && <span><Bot size={14} /></span>}
+          <p>{item.text}</p>
+        </div>
+        {item.role === "agent" && item.intent && (
+          <div className="intent-card">
+            <div>
+              <span>意图识别</span>
+              <Badge tone={item.ambiguous ? "waiting" : "active"}>
+                {Math.round(item.intent.confidence * 100)}% 置信度
+              </Badge>
+            </div>
+            <strong>{item.intent.label}</strong>
+            <p>{item.intent.rationale}</p>
+          </div>
+        )}
+        {item.role === "agent" && item.suggestions && item.suggestions.length > 0 && (
+          <div className="conversation-suggestions">
+            <header><Lightbulb size={14} /><strong>请选择最接近你意图的推测</strong></header>
+            {item.suggestions.map((suggestion) => (
+              <button
+                type="button"
+                disabled={busy}
+                key={`${suggestion.label}-${suggestion.value}`}
+                onClick={() => onSuggestion(suggestion.value)}
+              >
+                <span>{suggestion.recommended ? "推荐" : "备选"}</span>
+                <div><strong>{suggestion.label}</strong><p>{suggestion.rationale}</p></div>
+                <ChevronRight size={14} />
+              </button>
+            ))}
+          </div>
+        )}
+        {item.role === "agent" && tools.length > 0 && (
+          <div className="tool-proposals">
+            <header><Settings2 size={14} /><strong>建议调用的工具</strong></header>
+            {tools.map((tool) => (
+              <div key={tool.id}>
+                <span>{tool.action === "confirm_spec" ? <FileText size={14} /> : tool.action === "validate" ? <ClipboardCheck size={14} /> : <Sparkles size={14} />}</span>
+                <div>
+                  <strong>{tool.label}</strong>
+                  <p>{tool.description}</p>
+                  <small>{tool.requires_confirmation ? "点击后执行，需要你的明确确认" : "确定性工具，可直接执行"}</small>
+                </div>
+                <button type="button" disabled={busy} onClick={() => onTool(tool, item.proposalMessage)}>
+                  {tool.action === "confirm_spec" ? "确认执行" : "运行工具"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {item.role === "agent" && item.nextQuestion && (
+          <div className="next-question"><ArrowRight size={13} /><span><strong>下一问</strong>{item.nextQuestion}</span></div>
+        )}
+        {item.affected && item.affected.length > 0 && (
+          <div className="impact"><small>预计影响模块</small><div>{item.affected.map((value) => <em key={value}>{value}</em>)}</div></div>
+        )}
+      </div>;
+    })}
+    {busy && <div className="conversation-thinking"><LoaderCircle className="spin" size={14} />Agent 正在识别意图并编排计划…</div>}
+  </div>;
+}
+
+function ConversationComposer({
+  value,
+  busy,
+  compact = false,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  busy: boolean;
+  compact?: boolean;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return <form className={`composer conversation-composer ${compact ? "compact" : ""}`} onSubmit={onSubmit}>
+    <textarea
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder="描述目标、提出修改，或说“帮我规划下一步”…"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          event.currentTarget.form?.requestSubmit();
+        }
+      }}
+    />
+    <div>
+      <small>{busy ? "Agent 正在工作…" : "Enter 发送 · Shift + Enter 换行 · 确认前不会改写 ProjectSpec"}</small>
+      <button aria-label="发送消息" disabled={busy || !value.trim()}><Send size={16} /></button>
+    </div>
+  </form>;
+}
+
 function Overview({
-  project, spec, artifacts, validations, setActive, exportProject, onDelete,
+  project, spec, artifacts, validations, messages, message, busy,
+  onMessageChange, onSend, onSuggestion, onTool, setActive, exportProject, onDelete,
 }: {
   project: ProjectSummary;
   spec: ProjectSpec;
   artifacts: Artifact[];
   validations: Validation[];
+  messages: ChatMessage[];
+  message: string;
+  busy: boolean;
+  onMessageChange: (value: string) => void;
+  onSend: (event: FormEvent) => void;
+  onSuggestion: (value: string) => void;
+  onTool: (tool: ConversationToolCall, sourceMessage?: string) => void;
   setActive: (value: string) => void;
   exportProject: () => void;
   onDelete: () => void;
@@ -955,6 +1246,53 @@ function Overview({
       <button className="button secondary" onClick={exportProject}><Download size={16} /> 导出工程包</button>
       <button className="button primary" onClick={() => setActive("需求")}>继续开发 <ArrowRight size={16} /></button>
     </PageHead>
+    <section className="conversation-workspace">
+      <header>
+        <div>
+          <span className="kicker">Plan-driven agent</span>
+          <h2>通过对话推进项目</h2>
+          <p>先识别意图和模糊项，再展示计划与工具；只有你确认后才更新 ProjectSpec 或生成工程资产。</p>
+        </div>
+        <Badge tone={questions.length ? "waiting" : "done"}>
+          {questions.length ? `${questions.length} 项待澄清` : "需求已具备推进条件"}
+        </Badge>
+      </header>
+      <div className="conversation-grid">
+        <div className="conversation-main">
+          <ConversationThread
+            messages={messages}
+            busy={busy}
+            onSuggestion={onSuggestion}
+            onTool={onTool}
+          />
+          <ConversationComposer
+            value={message}
+            busy={busy}
+            onChange={onMessageChange}
+            onSubmit={onSend}
+          />
+        </div>
+        <div className="conversation-plan">
+          <span className="kicker">当前推进计划</span>
+          {phases.map(([name, tone, detail], index) => (
+            <button
+              type="button"
+              className={tone}
+              key={name}
+              onClick={() => {
+                const destinations = ["需求", "系统架构", "硬件方案", "固件代码", "验证记录", "验证记录"];
+                setActive(destinations[index]);
+              }}
+            >
+              <span>{tone === "done" ? <Check size={12} /> : index + 1}</span>
+              <div><strong>{name}</strong><small>{detail}</small></div>
+              <ChevronRight size={14} />
+            </button>
+          ))}
+          <p><ShieldCheck size={14} />真实硬件、上电、烧录与采购不会被自动执行。</p>
+        </div>
+      </div>
+    </section>
     <section className="card phase-card">
       <Title kicker="开发路径" title="从需求到实物验证" extra={<small>{artifacts.length} 个文件</small>} />
       <div className="phases">{phases.map(([name, tone, detail], index) => (
@@ -1628,6 +1966,231 @@ function DeleteProjectModal({
         </footer>
       </>}
     </section>
+  </div>;
+}
+
+function PlanningCreateModal({
+  close,
+  onPlan,
+  onCreate,
+}: {
+  close: () => void;
+  onPlan: (description: string) => Promise<ProjectPlan>;
+  onCreate: (data: ProjectForm) => Promise<void>;
+}) {
+  const [idea, setIdea] = useState("");
+  const [plan, setPlan] = useState<ProjectPlan | null>(null);
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [projectName, setProjectName] = useState("");
+  const [note, setNote] = useState("");
+  const [planning, setPlanning] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const [error, setError] = useState("");
+  const dialogRef = useDialogFocus<HTMLDivElement>(close);
+
+  if (advanced) {
+    return <CreateModal close={close} onCreate={onCreate} />;
+  }
+
+  async function createPlan() {
+    if (idea.trim().length < 10) {
+      setError("请至少用 10 个字符描述产品目标、使用方式或希望解决的问题。");
+      return;
+    }
+    setPlanning(true);
+    setError("");
+    try {
+      const result = await onPlan(idea.trim());
+      const defaults: Record<string, string> = {};
+      result.ambiguities.forEach((question) => {
+        const recommended = question.options.find((option) => option.recommended) ?? question.options[0];
+        if (recommended) defaults[question.id] = recommended.value;
+      });
+      setSelected(defaults);
+      setProjectName(result.proposed_name);
+      setPlan(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Agent 暂时无法生成计划");
+    } finally {
+      setPlanning(false);
+    }
+  }
+
+  async function confirmPlan() {
+    if (!plan || creating) return;
+    if (projectName.trim().length < 2) {
+      setError("计划名称至少需要 2 个字符。");
+      return;
+    }
+    const chosen = plan.ambiguities.flatMap((question) => {
+      const value = selected[question.id];
+      return value ? [{ field: question.field, value, question: question.question }] : [];
+    });
+    const values = Object.fromEntries(chosen.map((item) => [item.field, item.value]));
+    const budget = Number(values.budget_cny);
+    const description = [
+      idea.trim(),
+      "",
+      "经用户确认的规划选择：",
+      ...chosen.map((item) => `- ${item.question} ${item.value}`),
+      note.trim() ? `- 用户补充：${note.trim()}` : "",
+    ].filter(Boolean).join("\n");
+    setCreating(true);
+    setError("");
+    try {
+      await onCreate({
+        name: projectName.trim(),
+        description,
+        target_user: values.target_user || undefined,
+        usage_environment: values.usage_environment || undefined,
+        budget_cny: Number.isFinite(budget) && budget > 0
+          ? budget
+          : undefined,
+        experience_level: undefined,
+        preferred_controller: values.preferred_controller || undefined,
+        communication_preference: values.communication_preference || undefined,
+        existing_components: undefined,
+        size_constraints: undefined,
+        power_constraints: undefined,
+        prototype_level: values.prototype_level || undefined,
+        avoid_custom_pcb: undefined,
+        data_collection_required: undefined,
+        machine_learning_required: undefined,
+        control_interface_required: undefined,
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "项目创建失败");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return <div className="backdrop">
+    <div
+      ref={dialogRef}
+      className={`modal-box planning-modal ${plan ? "has-plan" : ""}`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="planning-project-title"
+    >
+      <header>
+        <div>
+          <span className="kicker">{plan ? "计划确认" : "对话式项目规划"}</span>
+          <h2 id="planning-project-title">{plan ? "核对 Agent 的理解与推测" : "你想做一个什么产品？"}</h2>
+        </div>
+        <button className="icon" aria-label="关闭新建项目" onClick={close}><X size={20} /></button>
+      </header>
+
+      {!plan ? <div className="planning-dialog">
+        <div className="planning-agent-message">
+          <span><Bot size={17} /></span>
+          <div>
+            <strong>先说想法，不需要填写完整表单</strong>
+            <p>我会把模糊描述整理成计划，给出推测选项和拟调用工具。确认前不会创建项目或写入 ProjectSpec。</p>
+          </div>
+        </div>
+        <label className="planning-input">
+          <span>产品想法</span>
+          <textarea
+            autoFocus
+            value={idea}
+            onChange={(event) => setIdea(event.target.value)}
+            placeholder="例如：我想做一个帮助长时间伏案设计师改善坐姿的桌面装置，能感知使用状态并用柔和方式提醒，但我还不知道该选什么传感器和主控。"
+          />
+          <small>{idea.length}/6000 · 可以包含目标、用户、场景、交互和已有条件，也可以只说一个模糊概念。</small>
+        </label>
+        <div className="planning-preview-strip">
+          <div><span>1</span><strong>意图识别</strong><small>理解目标与边界</small></div>
+          <ChevronRight size={14} />
+          <div><span>2</span><strong>计划拆解</strong><small>排列开发步骤</small></div>
+          <ChevronRight size={14} />
+          <div><span>3</span><strong>推测确认</strong><small>选择推荐或备选</small></div>
+          <ChevronRight size={14} />
+          <div><span>4</span><strong>工具编排</strong><small>确认后再执行</small></div>
+        </div>
+        {error && <p className="form-error">{error}</p>}
+      </div> : <div className="planning-review">
+        <div className="planning-conversation">
+          <div className="message user"><p>{idea}</p></div>
+          <div className="message assistant"><span><Bot size={14} /></span><p>{plan.summary}</p></div>
+        </div>
+
+        <section className="plan-intent">
+          <header><span>模糊意图识别</span><Badge tone={plan.intent.confidence < 0.75 ? "waiting" : "active"}>{Math.round(plan.intent.confidence * 100)}% 置信度</Badge></header>
+          <strong>{plan.intent.label}</strong>
+          <p>{plan.intent.rationale}</p>
+        </section>
+
+        <section className="plan-phases">
+          <header><span className="kicker">建议推进计划</span><small>{plan.phases.length} 个阶段</small></header>
+          {plan.phases.map((phase, index) => (
+            <div key={phase.id}>
+              <span>{index + 1}</span>
+              <div><strong>{phase.title}</strong><p>{phase.description}</p><small><Settings2 size={12} />{phase.tool}</small></div>
+            </div>
+          ))}
+        </section>
+
+        <section className="plan-ambiguities">
+          <header>
+            <span className="kicker">需要你选择的推测</span>
+            <p>“推荐”只是 Agent 的起点建议；你的选择才会作为用户确认内容写入 ProjectSpec。</p>
+          </header>
+          {plan.ambiguities.map((question) => (
+            <article key={question.id}>
+              <div><strong>{question.question}</strong><p>{question.why}</p></div>
+              <div className="plan-options">
+                {question.options.map((option) => (
+                  <button
+                    type="button"
+                    className={selected[question.id] === option.value ? "selected" : ""}
+                    key={`${question.id}-${option.value}`}
+                    onClick={() => setSelected((current) => ({ ...current, [question.id]: option.value }))}
+                  >
+                    <span>{option.recommended ? "推荐" : "备选"}</span>
+                    <strong>{option.label}</strong>
+                    <p>{option.rationale}</p>
+                    {selected[question.id] === option.value && <Check size={15} />}
+                  </button>
+                ))}
+              </div>
+            </article>
+          ))}
+        </section>
+
+        <section className="plan-confirmation">
+          <label><span>计划名称</span><input value={projectName} onChange={(event) => setProjectName(event.target.value)} /></label>
+          <label><span>补充或纠正 Agent 的理解（可选）</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：我已有一块开发板，但型号稍后确认；第一版不需要机器学习。" /></label>
+          <div>
+            <ShieldCheck size={15} />
+            <p><strong>执行边界</strong>创建项目只会生成 ProjectSpec 和工程文件；不会采购、烧录、接线、上电或操作真实硬件。</p>
+          </div>
+        </section>
+        {plan.warning && <p className="planning-warning">DeepSeek 本次不可用，当前显示的是安全的确定性规划草案：{plan.warning}</p>}
+        {error && <p className="form-error">{error}</p>}
+      </div>}
+
+      <footer>
+        {!plan ? <>
+          <button className="button secondary" disabled={planning} onClick={() => setAdvanced(true)}>使用高级表单</button>
+          <button className="button primary" disabled={planning || idea.trim().length < 10} onClick={() => void createPlan()}>
+            {planning ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
+            {planning ? "Agent 正在规划…" : "让 Agent 先规划"}
+          </button>
+        </> : <>
+          <button className="button secondary" disabled={creating} onClick={() => {
+            setPlan(null);
+            setSelected({});
+            setError("");
+          }}>修改想法</button>
+          <button className="button primary" disabled={creating} onClick={() => void confirmPlan()}>
+            {creating ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
+            {creating ? "正在创建 ProjectSpec…" : "确认计划并创建项目"}
+          </button>
+        </>}
+      </footer>
+    </div>
   </div>;
 }
 

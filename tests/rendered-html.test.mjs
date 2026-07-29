@@ -111,3 +111,30 @@ test("derived module files have a persistent user confirmation interface", async
   assert.match(api, /source_spec_version/);
   assert.match(api, /scope: "content_review"/);
 });
+
+test("the primary workflow is plan-driven conversation with explicit tool confirmation", async () => {
+  const [page, api, types, generator] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../server/api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../server/types.ts", import.meta.url), "utf8"),
+    readFile(new URL("../server/generator.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /PlanningCreateModal/);
+  assert.match(page, /让 Agent 先规划/);
+  assert.match(page, /模糊意图识别/);
+  assert.match(page, /需要你选择的推测/);
+  assert.match(page, /建议调用的工具/);
+  assert.match(page, /确认计划并创建项目/);
+  assert.match(page, /apply_change: applyChange/);
+  assert.match(page, /确认前不会改写 ProjectSpec/);
+  assert.match(api, /url\.pathname === "\/api\/planning"/);
+  assert.match(api, /normalizeProjectPlan/);
+  assert.match(api, /suggested_tools/);
+  assert.match(api, /proposal_pending/);
+  assert.match(api, /open-requirements/);
+  assert.match(api, /不要主动推荐或猜测预算数字/);
+  assert.match(types, /ConversationToolCall/);
+  assert.match(types, /ProjectPlan/);
+  assert.match(generator, /defaultBool/);
+  assert.match(generator, /\["待确认", "由 Agent 推荐"\]/);
+});

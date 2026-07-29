@@ -137,6 +137,62 @@ export type ProjectCreateInput = {
   control_interface_required?: boolean;
 };
 
+export type PlanningOption = {
+  label: string;
+  value: string;
+  rationale: string;
+  recommended: boolean;
+};
+
+export type PlanningQuestion = {
+  id: string;
+  field:
+    | "target_user"
+    | "usage_environment"
+    | "prototype_level"
+    | "preferred_controller"
+    | "communication_preference"
+    | "budget_cny";
+  question: string;
+  why: string;
+  options: PlanningOption[];
+};
+
+export type ProjectPlan = {
+  proposed_name: string;
+  summary: string;
+  intent: {
+    label: string;
+    confidence: number;
+    rationale: string;
+  };
+  phases: Array<{
+    id: string;
+    title: string;
+    description: string;
+    tool: string;
+  }>;
+  ambiguities: PlanningQuestion[];
+  assumptions: string[];
+  draft: ProjectCreateInput;
+};
+
+export type ConversationSuggestion = {
+  label: string;
+  value: string;
+  rationale: string;
+  recommended: boolean;
+};
+
+export type ConversationToolCall = {
+  id: string;
+  label: string;
+  description: string;
+  action: "confirm_spec" | "generate" | "validate" | "open_section";
+  target?: string;
+  requires_confirmation: boolean;
+};
+
 export type RequirementExtraction = {
   product_goal: string;
   target_user: string;
@@ -173,6 +229,15 @@ export type RequirementChange = {
   resolved_open_questions?: string[];
   affected_modules?: string[];
   requires_confirmation?: boolean;
+  intent?: {
+    label: string;
+    confidence: number;
+    rationale: string;
+  };
+  ambiguous?: boolean;
+  suggestions?: ConversationSuggestion[];
+  suggested_tools?: ConversationToolCall[];
+  next_question?: string;
 };
 
 export type ArtifactDraft = {

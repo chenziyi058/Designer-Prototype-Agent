@@ -29,6 +29,8 @@ const userText = (value: string) =>
   traced(value, "user_provided", 1, "USER_CONFIRMED");
 const userBool = (value: boolean) =>
   traced(value, "user_provided", 1, "USER_CONFIRMED");
+const defaultBool = (value: boolean, notes: string) =>
+  traced(value, "template_default", 0.6, "NEEDS_CONFIRMATION", notes);
 const agentText = (value: string, confidence = 0.76) =>
   traced(value || "待确认", "agent_recommendation", confidence, "NEEDS_CONFIRMATION", "由 DeepSeek 从用户文字提取或推断，需要用户确认");
 const agentList = (value: string[], confidence = 0.74) =>
@@ -66,6 +68,11 @@ export function createProjectSpec(
   const budget = typeof input.budget_cny === "number"
     ? traced<number | null>(input.budget_cny, "user_provided", 1, "USER_CONFIRMED")
     : pendingNumber("预算由用户确认后才能计算");
+  const explicitCommunication =
+    input.communication_preference
+    && !["待确认", "由 Agent 推荐"].includes(input.communication_preference)
+      ? input.communication_preference
+      : null;
   return {
     schema_version: "1.0.0",
     project: {
@@ -73,7 +80,9 @@ export function createProjectSpec(
       name: userText(input.name),
       description: userText(input.description),
       product_goal: agentText(extraction.product_goal),
-      prototype_level: userText(input.prototype_level || "功能原型"),
+      prototype_level: input.prototype_level
+        ? userText(input.prototype_level)
+        : traced("功能原型", "template_default", 0.6, "NEEDS_CONFIRMATION", "尚未由用户确认原型完成度"),
       status: questions.length ? "NEEDS_CONFIRMATION" : "DRAFT",
       created_at: timestamp,
       updated_at: timestamp,
@@ -82,7 +91,9 @@ export function createProjectSpec(
       target_user: input.target_user && input.target_user !== "待确认"
         ? userText(input.target_user)
         : agentText(extraction.target_user),
-      experience_level: userText(input.experience_level || "初学者"),
+      experience_level: input.experience_level
+        ? userText(input.experience_level)
+        : pendingText("待确认", "开发经验尚未由用户确认"),
       preferred_language: traced("zh-CN", "template_default", 1, "SPEC_VERIFIED"),
     },
     scenario: {
@@ -114,7 +125,9 @@ export function createProjectSpec(
       actuators: [],
       motor_drivers: [],
       communication: {
-        transport: userText(input.communication_preference || "USB 串口"),
+        transport: explicitCommunication
+          ? userText(explicitCommunication)
+          : pendingText("待确认", "根据交互、距离、功耗与环境约束比较通信候选后再确认"),
         baud_rate: traced(115200, "template_default", 1, "SPEC_VERIFIED", "协议默认值，可由版本化需求修改"),
         protocol_version: "1.0.0",
       },
@@ -125,14 +138,22 @@ export function createProjectSpec(
           ? userText(input.power_constraints)
           : pendingText(),
       },
-      existing_components: traced(input.existing_components || [], "user_provided", 1, "USER_CONFIRMED"),
+      existing_components: input.existing_components
+        ? traced(input.existing_components, "user_provided", 1, "USER_CONFIRMED")
+        : traced([], "pending_confirmation", 0.5, "NEEDS_CONFIRMATION", "尚未确认已有器件"),
     },
     software: {
       firmware_platform: traced("PlatformIO / Arduino", "template_default", 0.9, "NEEDS_CONFIRMATION"),
       computer_language: traced(["Python", "TypeScript", "C++"], "template_default", 0.9, "NEEDS_CONFIRMATION"),
-      data_collection_required: userBool(input.data_collection_required ?? true),
-      machine_learning_required: userBool(input.machine_learning_required ?? false),
-      control_interface_required: userBool(input.control_interface_required ?? true),
+      data_collection_required: input.data_collection_required === undefined
+        ? defaultBool(true, "模板默认建议，需要用户确认")
+        : userBool(input.data_collection_required),
+      machine_learning_required: input.machine_learning_required === undefined
+        ? defaultBool(false, "模板默认建议，需要用户确认")
+        : userBool(input.machine_learning_required),
+      control_interface_required: input.control_interface_required === undefined
+        ? defaultBool(true, "模板默认建议，需要用户确认")
+        : userBool(input.control_interface_required),
     },
     constraints: {
       budget_cny: budget,
@@ -142,7 +163,9 @@ export function createProjectSpec(
       power_constraints: input.power_constraints && input.power_constraints !== "待确认"
         ? userText(input.power_constraints)
         : pendingText(),
-      avoid_custom_pcb: userBool(input.avoid_custom_pcb ?? true),
+      avoid_custom_pcb: input.avoid_custom_pcb === undefined
+        ? defaultBool(true, "第一版模板默认避免定制 PCB，需要用户确认")
+        : userBool(input.avoid_custom_pcb),
       preferred_components: traced([], "pending_confirmation", 0.5, "NEEDS_CONFIRMATION"),
       forbidden_components: traced([], "pending_confirmation", 0.5, "NEEDS_CONFIRMATION"),
     },
