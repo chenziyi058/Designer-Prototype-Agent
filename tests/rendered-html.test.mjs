@@ -77,6 +77,28 @@ test("requirements are confirmed inside the guided conversation and dropdowns ar
   assert.doesNotMatch(page, /<details/);
 });
 
+test("panels, dialogs, menus and content switches use short two-way motion", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /useAnimatedPresence/);
+  assert.match(page, /agentPresence\.closing/);
+  assert.match(page, /createPresence\.closing/);
+  assert.match(page, /deletePresence\.closing/);
+  assert.match(page, /menuPresence\.closing/);
+  assert.match(page, /bodyPresence\.closing/);
+  assert.match(page, /className="content-view"/);
+  assert.match(css, /--motion-panel: 190ms/);
+  assert.match(css, /@keyframes agent-panel-in/);
+  assert.match(css, /@keyframes agent-panel-out/);
+  assert.match(css, /@keyframes modal-box-in/);
+  assert.match(css, /@keyframes modal-box-out/);
+  assert.match(css, /@keyframes dropdown-menu-in/);
+  assert.match(css, /@keyframes dropdown-menu-out/);
+  assert.match(css, /@keyframes content-view-in/);
+});
+
 test("projects can be deleted only after explicit name confirmation", async () => {
   const [page, api] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),

@@ -409,6 +409,25 @@ function useDialogFocus<T extends HTMLElement>(onClose: () => void) {
   return dialogRef;
 }
 
+function useAnimatedPresence(visible: boolean, exitMs = 190) {
+  const [mounted, setMounted] = useState(visible);
+
+  if (visible && !mounted) {
+    setMounted(true);
+  }
+
+  useEffect(() => {
+    if (visible || !mounted) return;
+    const timer = window.setTimeout(() => setMounted(false), exitMs);
+    return () => window.clearTimeout(timer);
+  }, [exitMs, mounted, visible]);
+
+  return {
+    mounted,
+    closing: mounted && !visible,
+  };
+}
+
 function Dropdown({
   label, value, options, onChange, disabled = false, dangerAction,
 }: {
@@ -422,6 +441,7 @@ function Dropdown({
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value);
+  const menuPresence = useAnimatedPresence(open, 150);
 
   useEffect(() => {
     if (!open) return;
@@ -449,7 +469,7 @@ function Dropdown({
       <span>{selected?.label ?? "请选择"}</span>
       <ChevronDown size={15} aria-hidden="true" />
     </button>
-    {open && <div className="dropdown-menu">
+    {menuPresence.mounted && <div className={`dropdown-menu ${menuPresence.closing ? "is-closing" : ""}`}>
       <div className="dropdown-options" role="listbox" aria-label={`${label}选项`}>
         {options.map((option) => <button
           type="button"
@@ -498,6 +518,10 @@ export default function HomePage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const agentPresence = useAnimatedPresence(agentOpen, 190);
+  const mobileNavPresence = useAnimatedPresence(mobileNav, 180);
+  const createPresence = useAnimatedPresence(createOpen, 190);
+  const deletePresence = useAnimatedPresence(deleteOpen, 190);
   const [preview, setPreview] = useState("");
   const [introPhase, setIntroPhase] = useState<IntroPhase>("cover");
   const introLogoRef = useRef<HTMLDivElement>(null);
@@ -936,7 +960,11 @@ export default function HomePage() {
         {busy && <div className="busybar" role="status"><LoaderCircle size={14} className="spin" />{busy}</div>}
 
         <div className={`workspace ${agentOpen ? "" : "no-agent"}`}>
-          {mobileNav && <button className="mobile-nav-scrim" aria-label="关闭项目导航" onClick={() => setMobileNav(false)} />}
+          {mobileNavPresence.mounted && <button
+            className={`mobile-nav-scrim ${mobileNavPresence.closing ? "is-closing" : ""}`}
+            aria-label="关闭项目导航"
+            onClick={() => setMobileNav(false)}
+          />}
           <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
           <div className="project-switcher">
             <span>{project?.name.slice(0, 1) ?? "项"}</span>
@@ -981,6 +1009,7 @@ export default function HomePage() {
           </aside>
 
           <section className="content">
+          <div className="content-view" key={`${project?.id ?? "empty"}:${active}`}>
           {!project || !spec ? (
             <EmptyHome loading={Boolean(busy)} onCreate={() => setCreateOpen(true)} />
           ) : active === "项目概览" ? (
@@ -1020,10 +1049,11 @@ export default function HomePage() {
               onReturnToConversation={() => setActive("项目概览")}
             />
           )}
+          </div>
           </section>
 
-          {agentOpen && (
-            <aside className="agent">
+          {agentPresence.mounted && (
+            <aside className={`agent ${agentPresence.closing ? "is-closing" : ""}`}>
             <div className="agent-head">
               <div><AgentOrb active={Boolean(busy)} size="small" /><div><strong>Prototype Engineer</strong><small>● {provider}</small></div></div>
               <button className="icon" aria-label="关闭 Agent" onClick={() => setAgentOpen((open) => !open)}><X size={18} /></button>
@@ -1052,12 +1082,14 @@ export default function HomePage() {
         </footer>
       </section>
 
-      {createOpen && <PlanningCreateModal
+      {createPresence.mounted && <PlanningCreateModal
+        closing={createPresence.closing}
         close={() => setCreateOpen(false)}
         onPlan={planNewProject}
         onCreate={createProject}
       />}
-      {deleteOpen && project && <DeleteProjectModal
+      {deletePresence.mounted && project && <DeleteProjectModal
+        closing={deletePresence.closing}
         project={project}
         disabled={Boolean(busy)}
         close={() => setDeleteOpen(false)}
@@ -1902,13 +1934,14 @@ function Disclosure({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const bodyPresence = useAnimatedPresence(open, 150);
   return <div className={`disclosure ${open ? "open" : ""}`}>
     <button type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
       <ChevronDown size={15} aria-hidden="true" />
       <span><strong>{label}</strong><small>{meta}</small></span>
       {badge}
     </button>
-    {open && <div className="disclosure-body">{children}</div>}
+    {bodyPresence.mounted && <div className={`disclosure-body ${bodyPresence.closing ? "is-closing" : ""}`}>{children}</div>}
   </div>;
 }
 
@@ -1923,10 +1956,11 @@ function Field({ label, placeholder, area = false, value, onChange }: { label: s
 }
 
 function DeleteProjectModal({
-  project, disabled, close, onDelete,
+  project, disabled, closing, close, onDelete,
 }: {
   project: ProjectSummary;
   disabled: boolean;
+  closing: boolean;
   close: () => void;
   onDelete: () => Promise<void>;
 }) {
@@ -1936,7 +1970,7 @@ function DeleteProjectModal({
   const matches = confirmation.trim() === project.name;
   const dialogRef = useDialogFocus<HTMLElement>(close);
 
-  return <div className="backdrop" role="presentation">
+  return <div className={`backdrop ${closing ? "is-closing" : ""}`} role="presentation">
     <section ref={dialogRef} className="modal-box delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
       <header>
         <div><span className="kicker">危险操作 · 第 {stage}/2 步</span><h2 id="delete-project-title">{stage === 1 ? "确认删除项目？" : `再次确认删除“${project.name}”`}</h2></div>
@@ -1949,7 +1983,7 @@ function DeleteProjectModal({
           <p>包括所有 ProjectSpec 版本、Agent 对话与运行记录、工程文件、验证记录。此操作无法撤销，也不会删除你已经下载的 ZIP 文件。</p>
         </div>
       </div>
-      {stage === 1 ? <>
+      {stage === 1 ? <div className="modal-stage-content" key="delete-stage-1">
         <div className="delete-stage-copy">
           <strong>即将删除：{project.name}</strong>
           <p>请先确认你选中的是正确项目。点击下面的按钮不会立即删除，而是进入第二次名称确认。</p>
@@ -1960,7 +1994,7 @@ function DeleteProjectModal({
             继续，进行二次确认 <ArrowRight size={15} />
           </button>
         </footer>
-      </> : <>
+      </div> : <div className="modal-stage-content" key="delete-stage-2">
         <label className="field delete-confirm-field">
           <span>第二次确认：请输入项目名称 <strong>{project.name}</strong></span>
           <input
@@ -1990,16 +2024,18 @@ function DeleteProjectModal({
             {deleting ? "正在删除…" : "确认永久删除"}
           </button>
         </footer>
-      </>}
+      </div>}
     </section>
   </div>;
 }
 
 function PlanningCreateModal({
+  closing,
   close,
   onPlan,
   onCreate,
 }: {
+  closing: boolean;
   close: () => void;
   onPlan: (description: string) => Promise<ProjectPlan>;
   onCreate: (data: ProjectForm) => Promise<void>;
@@ -2016,7 +2052,7 @@ function PlanningCreateModal({
   const dialogRef = useDialogFocus<HTMLDivElement>(close);
 
   if (advanced) {
-    return <CreateModal close={close} onCreate={onCreate} />;
+    return <CreateModal closing={closing} close={close} onCreate={onCreate} />;
   }
 
   async function createPlan() {
@@ -2092,7 +2128,7 @@ function PlanningCreateModal({
     }
   }
 
-  return <div className="backdrop">
+  return <div className={`backdrop ${closing ? "is-closing" : ""}`}>
     <div
       ref={dialogRef}
       className={`modal-box planning-modal ${plan ? "has-plan" : ""}`}
@@ -2108,7 +2144,7 @@ function PlanningCreateModal({
         <button className="icon" aria-label="关闭新建项目" onClick={close}><X size={20} /></button>
       </header>
 
-      {!plan ? <div className="planning-dialog">
+      {!plan ? <div className="planning-dialog modal-stage-content" key="planning-dialog">
         <div className="planning-agent-message">
           <AgentOrb active={planning} size="medium" />
           <div>
@@ -2136,7 +2172,7 @@ function PlanningCreateModal({
           <div><span>4</span><strong>工具编排</strong><small>确认后再执行</small></div>
         </div>
         {error && <p className="form-error">{error}</p>}
-      </div> : <div className="planning-review">
+      </div> : <div className="planning-review modal-stage-content" key="planning-review">
         <div className="planning-conversation">
           <div className="message user"><p>{idea}</p></div>
           <div className="message assistant"><AgentOrb size="small" /><p>{plan.summary}</p></div>
@@ -2221,8 +2257,9 @@ function PlanningCreateModal({
 }
 
 function CreateModal({
-  close, onCreate,
+  closing, close, onCreate,
 }: {
+  closing: boolean;
   close: () => void;
   onCreate: (data: ProjectForm) => Promise<void>;
 }) {
@@ -2298,10 +2335,10 @@ function CreateModal({
     }
   }
 
-  return <div className="backdrop"><div ref={dialogRef} className="modal-box" role="dialog" aria-modal="true" aria-labelledby="create-project-title">
+  return <div className={`backdrop ${closing ? "is-closing" : ""}`}><div ref={dialogRef} className="modal-box" role="dialog" aria-modal="true" aria-labelledby="create-project-title">
     <header><div><span className="kicker">新建项目 · {step}/5</span><h2 id="create-project-title">{titles[step - 1]}</h2></div><button className="icon" aria-label="关闭新建项目" onClick={close}><X size={20} /></button></header>
     <div className="steps">{[1, 2, 3, 4, 5].map((value) => <i className={value <= step ? "filled" : ""} key={value} />)}</div>
-    <div className="form-body">
+    <div className="form-body modal-step-content" key={step}>
       {step === 1 && <>
         <Field label="项目名称" placeholder="例如：桌面呼吸灯原型" value={name} onChange={setName} />
         <Field label="产品概念与要解决的问题" area placeholder="描述产品、目标用户与核心问题…" value={concept} onChange={setConcept} />
