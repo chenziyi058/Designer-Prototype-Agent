@@ -51,14 +51,16 @@ test("visual workbench preserves the original empty-project structure without in
   assert.doesNotMatch(page, /landing-shell|workflow-overview/);
 });
 
-test("requirements can be explicitly confirmed and dropdowns are controlled", async () => {
+test("requirements are confirmed inside the guided conversation and dropdowns are controlled", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /确认并创建新版本/);
-  assert.match(page, /确认回答/);
+  assert.match(page, /ConversationCheckpoint/);
+  assert.match(page, /需要你的确认 · ProjectSpec/);
+  assert.match(page, /确认并推进/);
   assert.match(page, /spec\/confirmations/);
-  assert.match(page, /DeepSeek 推荐 3 个候选/);
+  assert.match(page, /让 Agent 推荐 3 个候选/);
   assert.match(page, /选择此方案并确认/);
   assert.match(page, /spec\/recommendations/);
+  assert.match(page, /Workflow 实时状态/);
   assert.match(page, /aria-haspopup="listbox"/);
   assert.doesNotMatch(page, /<select/);
   assert.doesNotMatch(page, /<details/);
@@ -80,16 +82,16 @@ test("projects can be deleted only after explicit name confirmation", async () =
   assert.match(api, /DELETE FROM projects WHERE id = \? AND owner = \?/);
 });
 
-test("derived module files have a persistent user confirmation interface", async () => {
+test("derived module confirmations live in conversation while module pages remain read-only", async () => {
   const [page, api] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../server/api.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /ArtifactConfirmationPanel/);
-  assert.match(page, /你正在确认什么/);
-  assert.match(page, /文件用途/);
-  assert.match(page, /建议核对/);
-  assert.match(page, /确认后的影响/);
+  assert.match(page, /ArtifactReviewStatus/);
+  assert.match(page, /对话中的工程文件确认/);
+  assert.match(page, /确认前请检查/);
+  assert.match(page, /当前页面仅用于查看工程内容/);
+  assert.match(page, /准备、生成、修改、确认和验证操作已统一移至项目概览/);
   for (const moduleName of [
     "系统架构",
     "硬件方案",
@@ -104,12 +106,28 @@ test("derived module files have a persistent user confirmation interface", async
   ]) {
     assert.match(page, new RegExp(JSON.stringify(moduleName).slice(1, -1)));
   }
-  assert.match(page, /确认该文件/);
-  assert.match(page, /“确认内容”与“验证工程结果”是两件不同的事/);
+  assert.match(page, /确认文件/);
+  assert.match(page, /“确认内容”不等于“验证真实工程结果”/);
   assert.match(page, /artifacts\/\$\{artifactId\}\/confirmations/);
   assert.match(api, /artifact-review:/);
   assert.match(api, /source_spec_version/);
   assert.match(api, /scope: "content_review"/);
+  assert.match(api, /recordWorkflowConversation/);
+});
+
+test("overview is conversation-first and no longer renders the duplicated dashboard cards", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /conversation-stage/);
+  assert.match(page, /buildWorkflowStages/);
+  assert.match(page, /agent-orb/);
+  assert.doesNotMatch(page, /<section className="card phase-card">/);
+  assert.doesNotMatch(page, /<div className="metrics">/);
+  assert.doesNotMatch(page, /<div className="columns">/);
+  assert.match(css, /@keyframes orb-breathe/);
+  assert.match(css, /\.workflow-state\.waiting/);
 });
 
 test("the primary workflow is plan-driven conversation with explicit tool confirmation", async () => {

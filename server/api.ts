@@ -208,6 +208,43 @@ async function recordRun(
   ).run();
 }
 
+async function recordWorkflowConversation(
+  env: RuntimeEnvironment,
+  projectId: string,
+  data: {
+    user: string;
+    assistant: string;
+    intent: string;
+    affectedModules?: string[];
+  },
+) {
+  const createdAt = timestamp();
+  const metadata = {
+    affected_modules: data.affectedModules || [],
+    provider: "deterministic",
+    model: "workflow-runtime",
+    conversation: {
+      intent: {
+        label: data.intent,
+        confidence: 1,
+        rationale: "用户在对话工作台中明确执行了该操作。",
+      },
+      ambiguous: false,
+      suggestions: [],
+      suggested_tools: [],
+      proposal_pending: false,
+    },
+  };
+  await env.database.batch([
+    env.database.prepare(
+      "INSERT INTO messages (id, project_id, role, content, metadata, created_at) VALUES (?, ?, 'user', ?, '{}', ?)",
+    ).bind(uid(), projectId, data.user, createdAt),
+    env.database.prepare(
+      "INSERT INTO messages (id, project_id, role, content, metadata, created_at) VALUES (?, ?, 'assistant', ?, ?, ?)",
+    ).bind(uid(), projectId, data.assistant, JSON.stringify(metadata), timestamp()),
+  ]);
+}
+
 function modelFor(
   env: RuntimeEnvironment,
   role: "default" | "reasoning" | "coding",
@@ -1521,6 +1558,12 @@ export async function handleApi(
       const version = await saveVersion(
         env, project, confirmation.updated, confirmation.reason, confirmation.modules,
       );
+      await recordWorkflowConversation(env, projectId, {
+        user: `确认需求：${confirmation.reason}`,
+        assistant: `已记录这项确认并创建 ProjectSpec v${version}。Workflow 中的需求状态和受影响模块已同步更新。`,
+        intent: "确认需求",
+        affectedModules: confirmation.modules,
+      });
       return jsonResponse({
         version,
         reason: confirmation.reason,
@@ -1657,6 +1700,12 @@ export async function handleApi(
           files: [...drafts.map((item) => item.path), agentDraft.path],
           usage: output.usage, requiresConfirmation: true,
         });
+        await recordWorkflowConversation(env, projectId, {
+          user: `生成工程模块：${moduleName}`,
+          assistant: `已基于 ProjectSpec v${project.current_spec_version} 生成 ${moduleName} 工程资产。新文件仍需在对话中人工审阅确认。`,
+          intent: "生成工程资产",
+          affectedModules: [moduleName],
+        });
         return jsonResponse({
           status: "GENERATED", module: moduleName, artifact_count: drafts.length + 1,
           agent_artifact: agentDraft.path, source_spec_version: project.current_spec_version,
@@ -1752,6 +1801,12 @@ export async function handleApi(
           "UPDATE projects SET updated_at = ? WHERE id = ?",
         ).bind(confirmedAt, projectId),
       ]);
+      await recordWorkflowConversation(env, projectId, {
+        user: `确认工程文件：${row.path}。说明：${note}`,
+        assistant: `已记录对 ${row.path} 的人工内容确认。该确认不代表代码运行、器件参数、接线或实物测试已经通过。`,
+        intent: "确认工程文件",
+        affectedModules: [row.path.split("/")[0]],
+      });
       return jsonResponse({
         id: row.id,
         kind: row.kind,
@@ -1808,6 +1863,12 @@ export async function handleApi(
       await env.database.prepare(
         "INSERT INTO validations (id, project_id, validator, status, report, created_at) VALUES (?, ?, ?, ?, ?, ?)",
       ).bind(uid(), projectId, validator, status, JSON.stringify(report), timestamp()).run();
+      await recordWorkflowConversation(env, projectId, {
+        user: `运行确定性验证：${target}`,
+        assistant: `验证已完成并如实记录为“${status}”。这是托管运行时的确定性检查，不代表真实硬件或本地执行器测试已经完成。`,
+        intent: "运行工程验证",
+        affectedModules: ["验证记录"],
+      });
       return jsonResponse(report);
     }
 

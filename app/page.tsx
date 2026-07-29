@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  AlertTriangle, ArrowRight, Bot, Check, ChevronDown, ChevronRight, CircleDollarSign,
+  AlertTriangle, ArrowRight, Bot, Check, ChevronDown, ChevronRight,
   Clipboard, ClipboardCheck, Code2, Cpu, Download, FileCode2, FileText,
   FolderOpen, GitBranch, Home, Layers3, LoaderCircle, Menu, PackageSearch,
   Lightbulb, Plus, Send, Settings2, ShieldCheck, Sparkles, TestTube2,
@@ -138,6 +138,12 @@ type ConversationToolCall = {
   target?: string;
   requires_confirmation: boolean;
 };
+type WorkflowStage = {
+  label: string;
+  tone: Tone;
+  detail: string;
+  destination: string;
+};
 type PlanningQuestion = {
   id: string;
   field:
@@ -252,6 +258,71 @@ const statusTone = (status: string): Tone => {
   if (["NEEDS_CONFIRMATION", "HARDWARE_PENDING"].includes(status)) return "waiting";
   return "neutral";
 };
+
+function buildWorkflowStages(
+  project: ProjectSummary | null,
+  spec: ProjectSpec | null,
+  artifacts: Artifact[],
+  validations: Validation[],
+): WorkflowStage[] {
+  const pendingQuestions = spec?.open_questions.filter(
+    (item) => item.verification_status !== "USER_CONFIRMED",
+  ).length ?? 0;
+  const latestValidations = validations.filter(
+    (item, index) => validations.findIndex((entry) => entry.validator === item.validator) === index,
+  );
+  const validationFailed = latestValidations.filter((item) => item.status === "FAILED").length;
+
+  return nav.map(([label]) => {
+    if (label === "项目概览") {
+      return {
+        label,
+        tone: pendingQuestions ? "active" : "done",
+        detail: pendingQuestions ? "对话推进中" : "等待下一指令",
+        destination: label,
+      };
+    }
+    if (label === "需求") {
+      return {
+        label,
+        tone: pendingQuestions ? "waiting" : "done",
+        detail: pendingQuestions
+          ? `${pendingQuestions} 项待确认`
+          : project ? `ProjectSpec v${project.current_spec_version}` : "尚未创建",
+        destination: label,
+      };
+    }
+    if (label === "验证记录") {
+      return {
+        label,
+        tone: validationFailed ? "danger" : latestValidations.length ? "done" : "neutral",
+        detail: validationFailed
+          ? `${validationFailed} 项失败`
+          : latestValidations.length ? `${latestValidations.length} 类已运行` : "尚未运行",
+        destination: label,
+      };
+    }
+    const config = moduleConfig[label];
+    const related = artifacts.filter((item) =>
+      config?.prefixes.some((prefix) => item.path.startsWith(prefix)),
+    );
+    const stale = related.some((item) => item.source_spec_version !== project?.current_spec_version);
+    const awaiting = related.filter((item) =>
+      ["GENERATED", "NEEDS_CONFIRMATION"].includes(item.status),
+    ).length;
+    const confirmed = related.filter((item) => item.status === "USER_CONFIRMED").length;
+    return {
+      label,
+      tone: stale || awaiting ? "waiting" : confirmed && confirmed === related.length ? "done" : related.length ? "active" : "neutral",
+      detail: stale
+        ? "需按新版本重生成"
+        : awaiting ? `${awaiting} 个文件待确认`
+          : confirmed ? `${confirmed} 个文件已确认`
+            : related.length ? `${related.length} 个文件已生成` : "待生成",
+      destination: label,
+    };
+  });
+}
 
 function browserOwnerId() {
   if (typeof window === "undefined") return "";
@@ -552,6 +623,10 @@ export default function HomePage() {
       ),
     );
   }, [active, artifacts]);
+  const workflowStages = useMemo(
+    () => buildWorkflowStages(project, spec, artifacts, validations),
+    [project, spec, artifacts, validations],
+  );
 
   useEffect(() => {
     if (active === "项目概览" || active === "验证记录") return;
@@ -715,9 +790,6 @@ export default function HomePage() {
       return;
     }
     if (tool.action === "generate" && tool.target) {
-      const targetSection = Object.entries(moduleConfig)
-        .find(([, config]) => config.module === tool.target)?.[0];
-      if (targetSection) setActive(targetSection);
       await generateCurrent(tool.target);
       return;
     }
@@ -760,26 +832,8 @@ export default function HomePage() {
     try {
       await request(`/api/projects/${project.id}/validate/${target}`, { method: "POST" });
       await refreshCurrent();
-      setActive("验证记录");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "验证失败");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function restoreVersion(version: number) {
-    if (!project || busy) return;
-    setBusy(`正在从 ProjectSpec v${version} 创建恢复版本`);
-    setError("");
-    try {
-      await request(`/api/projects/${project.id}/spec/versions/${version}/restore`, {
-        method: "POST",
-      });
-      await refreshCurrent();
-      setActive("需求");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "版本恢复失败");
     } finally {
       setBusy("");
     }
@@ -800,7 +854,6 @@ export default function HomePage() {
         body: JSON.stringify(payload),
       });
       await refreshCurrent();
-      setActive("需求");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "需求确认失败");
       throw reason;
@@ -857,10 +910,6 @@ export default function HomePage() {
     if (project) window.location.assign(`${API_URL}/api/projects/${project.id}/export`);
   }
 
-  const validationTarget = ["硬件方案", "BOM", "接线"].includes(active)
-    ? "hardware"
-    : active === "通信协议" ? "protocol"
-    : ["固件代码", "Python 程序"].includes(active) ? "code" : undefined;
   const introVisible = introPhase !== "done";
 
   return (
@@ -912,16 +961,19 @@ export default function HomePage() {
             </div>
           </div>
           <span className="nav-caption">Project workflow</span>
-          <nav>{nav.map(([label, Icon]) => (
+          <nav>{nav.map(([label, Icon]) => {
+            const stage = workflowStages.find((item) => item.label === label);
+            return (
             <button
               key={label}
               className={active === label ? "selected" : ""}
               onClick={() => { setActive(label); setMobileNav(false); }}
             >
-              <Icon size={17} />{label}
-              {label === "验证记录" && validations.length > 0 && <em>{validations.length}</em>}
+              <Icon size={17} />
+              <span><strong>{label}</strong><small>{stage?.detail ?? "待开始"}</small></span>
+              <i className={`workflow-state ${stage?.tone ?? "neutral"}`} aria-hidden="true" />
             </button>
-          ))}</nav>
+          );})}</nav>
           <div className="safety">
             <ShieldCheck size={18} />
             <div><strong>原型安全边界</strong><p>首次上电前必须人工检查接线。Agent 不能替代专业电气安全评审。</p></div>
@@ -936,14 +988,17 @@ export default function HomePage() {
               project={project}
               spec={spec}
               artifacts={artifacts}
-              validations={validations}
               messages={messages}
               message={message}
               busy={Boolean(busy)}
+              workflowStages={workflowStages}
               onMessageChange={setMessage}
               onSend={send}
               onSuggestion={(value) => void sendContent(`我选择：${value}`, false)}
               onTool={(tool, sourceMessage) => void executeConversationTool(tool, sourceMessage)}
+              onConfirmRequirement={confirmRequirement}
+              onRecommendRequirement={recommendRequirement}
+              onConfirmArtifact={confirmArtifact}
               setActive={setActive}
               exportProject={exportProject}
               onDelete={() => setDeleteOpen(true)}
@@ -958,17 +1013,11 @@ export default function HomePage() {
               selected={selectedArtifact}
               preview={preview}
               onOpen={openArtifact}
-              onGenerate={moduleConfig[active]?.module ? () => void generateCurrent(moduleConfig[active].module!) : undefined}
-              onValidate={validationTarget ? () => void validateCurrent(validationTarget) : undefined}
               projectId={project.id}
               projectSpecVersion={project.current_spec_version}
               spec={active === "需求" ? spec : undefined}
               versions={active === "需求" ? versions : undefined}
-              onRestore={restoreVersion}
-              onConfirm={confirmRequirement}
-              onRecommend={recommendRequirement}
-              onConfirmArtifact={confirmArtifact}
-              disabled={Boolean(busy)}
+              onReturnToConversation={() => setActive("项目概览")}
             />
           )}
           </section>
@@ -976,7 +1025,7 @@ export default function HomePage() {
           {agentOpen && (
             <aside className="agent">
             <div className="agent-head">
-              <div><span><Bot size={17} /></span><div><strong>Prototype Engineer</strong><small>● {provider}</small></div></div>
+              <div><AgentOrb active={Boolean(busy)} size="small" /><div><strong>Prototype Engineer</strong><small>● {provider}</small></div></div>
               <button className="icon" aria-label="关闭 Agent" onClick={() => setAgentOpen((open) => !open)}><X size={18} /></button>
             </div>
             <div className="context"><GitBranch size={15} />{project ? `已连接 ProjectSpec v${project.current_spec_version}` : "创建项目后连接上下文"}</div>
@@ -1069,6 +1118,19 @@ function EmptyHome({ loading, onCreate }: { loading: boolean; onCreate: () => vo
   </div>;
 }
 
+function AgentOrb({
+  active = false,
+  size = "medium",
+}: {
+  active?: boolean;
+  size?: "small" | "medium" | "large";
+}) {
+  return <span className={`agent-orb ${size} ${active ? "active" : ""}`} aria-hidden="true">
+    <i />
+    <b />
+  </span>;
+}
+
 function ConversationThread({
   messages,
   busy,
@@ -1086,7 +1148,7 @@ function ConversationThread({
   return <div className={`chat conversation-thread ${compact ? "compact" : ""}`}>
     {visibleMessages.length === 0 && (
       <div className="conversation-welcome">
-        <span><Bot size={16} /></span>
+        <AgentOrb active={busy} size="small" />
         <div>
           <strong>先告诉我你想推进什么</strong>
           <p>我会先形成计划、识别模糊意图并提供推测选项，不会直接改写 ProjectSpec。</p>
@@ -1106,7 +1168,7 @@ function ConversationThread({
       );
       return <div className="conversation-turn" key={`${item.role}-${index}`}>
         <div className={`message ${item.role === "agent" ? "assistant" : "user"}`}>
-          {item.role === "agent" && <span><Bot size={14} /></span>}
+          {item.role === "agent" && <AgentOrb active={busy && index === visibleMessages.length - 1} size="small" />}
           <p>{item.text}</p>
         </div>
         {item.role === "agent" && item.intent && (
@@ -1200,42 +1262,231 @@ function ConversationComposer({
   </form>;
 }
 
+function ConversationCheckpoint({
+  question,
+  artifact,
+  currentSpecVersion,
+  busy,
+  onConfirmRequirement,
+  onRecommendRequirement,
+  onConfirmArtifact,
+}: {
+  question?: { item: Traced<string>; index: number };
+  artifact?: Artifact;
+  currentSpecVersion: number;
+  busy: boolean;
+  onConfirmRequirement: (payload: {
+    question_index?: number;
+    answer?: string;
+  }) => Promise<void>;
+  onRecommendRequirement: (payload: {
+    question_index?: number;
+  }) => Promise<ComponentRecommendation>;
+  onConfirmArtifact: (artifactId: string, note: string) => Promise<void>;
+}) {
+  const [answer, setAnswer] = useState("");
+  const [note, setNote] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [recommendation, setRecommendation] = useState<ComponentRecommendation | null>(null);
+  const [loadingRecommendation, setLoadingRecommendation] = useState(false);
+
+  if (question) {
+    return <section className="conversation-checkpoint" aria-label="对话中的需求确认">
+      <div className="checkpoint-head">
+        <AgentOrb size="small" />
+        <div>
+          <span>需要你的确认 · ProjectSpec</span>
+          <strong>{question.item.value}</strong>
+          <p>{question.item.notes || "这项信息会影响后续选型、成本或实现方式，因此 Agent 不会自行猜测并写入需求。"}</p>
+        </div>
+        <Badge tone="waiting">待确认</Badge>
+      </div>
+      <div className="checkpoint-actions">
+        <button
+          type="button"
+          className="button secondary compact"
+          disabled={busy || loadingRecommendation}
+          onClick={() => {
+            setLoadingRecommendation(true);
+            void onRecommendRequirement({ question_index: question.index })
+              .then(setRecommendation)
+              .catch(() => undefined)
+              .finally(() => setLoadingRecommendation(false));
+          }}
+        >
+          {loadingRecommendation ? <LoaderCircle className="spin" size={14} /> : <Lightbulb size={14} />}
+          让 Agent 推荐 3 个候选
+        </button>
+        <span>或直接回复你已经确认的事实</span>
+      </div>
+      {recommendation && <RecommendationPanel
+        data={recommendation}
+        disabled={busy}
+        onSelect={async (candidate) => {
+          await onConfirmRequirement({
+            question_index: question.index,
+            answer: `选择候选：${candidate.name}。选择理由：${candidate.fit_reason}。待验证：${candidate.verification_required.join("、")}。`,
+          });
+        }}
+      />}
+      <div className="checkpoint-reply">
+        <input
+          aria-label={`回答问题：${question.item.value}`}
+          value={answer}
+          placeholder="输入已确认的信息；不确定时可以先查看 Agent 候选"
+          onChange={(event) => setAnswer(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && answer.trim() && !busy) {
+              void onConfirmRequirement({
+                question_index: question.index,
+                answer: answer.trim(),
+              });
+            }
+          }}
+        />
+        <button
+          type="button"
+          disabled={busy || answer.trim().length < 2}
+          onClick={() => void onConfirmRequirement({
+            question_index: question.index,
+            answer: answer.trim(),
+          })}
+        ><Check size={14} />确认并推进</button>
+      </div>
+    </section>;
+  }
+
+  if (artifact) {
+    const stale = artifact.source_spec_version !== currentSpecVersion;
+    const moduleName = Object.entries(moduleConfig).find(([, config]) =>
+      config.prefixes.some((prefix) => artifact.path.startsWith(prefix)),
+    )?.[0] ?? "工程";
+    const guidance = moduleReviewGuidance[moduleName] ?? {
+      purpose: "该文件是当前 ProjectSpec 派生的工程资产。",
+      checklist: ["内容是否符合 ProjectSpec", "未知信息是否保持待确认", "限制是否说明清楚"],
+      boundary: "确认文件内容不代表真实硬件、代码运行或实物测试已经通过。",
+      example: "已核对文件内容与当前 ProjectSpec 一致。",
+    };
+    return <section className="conversation-checkpoint" aria-label="对话中的工程文件确认">
+      <div className="checkpoint-head">
+        <AgentOrb size="small" />
+        <div>
+          <span>需要你的确认 · {moduleName}</span>
+          <strong>{artifact.path}</strong>
+          <p>{guidance.purpose}</p>
+        </div>
+        <Badge tone={stale ? "danger" : "waiting"}>{stale ? "版本已过期" : "待确认"}</Badge>
+      </div>
+      <div className="checkpoint-explanation">
+        <strong>确认前请检查</strong>
+        <ul>{guidance.checklist.map((item) => <li key={item}>{item}</li>)}</ul>
+        <p><AlertTriangle size={13} />{guidance.boundary}</p>
+      </div>
+      {stale ? (
+        <div className="checkpoint-blocked">该文件来自 ProjectSpec v{artifact.source_spec_version}，请先在对话中要求 Agent 按 v{currentSpecVersion} 重新生成。</div>
+      ) : <>
+        <label className="checkpoint-acknowledge">
+          <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
+          <span>我已阅读工程文件，并理解“确认内容”不等于“验证真实工程结果”。</span>
+        </label>
+        <div className="checkpoint-reply">
+          <input
+            aria-label={`确认说明：${artifact.path}`}
+            value={note}
+            placeholder={`确认说明，例如：${guidance.example}`}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          <button
+            type="button"
+            disabled={busy || !acknowledged || note.trim().length < 2}
+            onClick={() => void onConfirmArtifact(artifact.id, note.trim())}
+          ><Check size={14} />确认文件</button>
+        </div>
+      </>}
+    </section>;
+  }
+
+  return <section className="conversation-checkpoint complete" aria-label="对话流程状态">
+    <AgentOrb size="small" />
+    <div>
+      <strong>当前没有待处理的人工确认</strong>
+      <p>你可以继续描述修改意图，或使用右侧推荐操作生成与验证下一阶段。Workflow 会随执行结果自动更新。</p>
+    </div>
+    <Badge tone="done">可继续</Badge>
+  </section>;
+}
+
 function Overview({
-  project, spec, artifacts, validations, messages, message, busy,
-  onMessageChange, onSend, onSuggestion, onTool, setActive, exportProject, onDelete,
+  project, spec, artifacts, messages, message, busy,
+  workflowStages, onMessageChange, onSend, onSuggestion, onTool,
+  onConfirmRequirement, onRecommendRequirement, onConfirmArtifact,
+  setActive, exportProject, onDelete,
 }: {
   project: ProjectSummary;
   spec: ProjectSpec;
   artifacts: Artifact[];
-  validations: Validation[];
   messages: ChatMessage[];
   message: string;
   busy: boolean;
+  workflowStages: WorkflowStage[];
   onMessageChange: (value: string) => void;
   onSend: (event: FormEvent) => void;
   onSuggestion: (value: string) => void;
   onTool: (tool: ConversationToolCall, sourceMessage?: string) => void;
+  onConfirmRequirement: (payload: {
+    field?: string;
+    value?: string | number;
+    question_index?: number;
+    answer?: string;
+  }) => Promise<void>;
+  onRecommendRequirement: (payload: {
+    field?: string;
+    question_index?: number;
+  }) => Promise<ComponentRecommendation>;
+  onConfirmArtifact: (artifactId: string, note: string) => Promise<void>;
   setActive: (value: string) => void;
   exportProject: () => void;
   onDelete: () => void;
 }) {
-  const questions = (spec.open_questions ?? []).filter(
-    (item) => item.verification_status !== "USER_CONFIRMED",
+  const questionEntries = spec.open_questions
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.verification_status !== "USER_CONFIRMED");
+  const pendingArtifact = artifacts.find((item) =>
+    ["GENERATED", "NEEDS_CONFIRMATION"].includes(item.status),
   );
-  const latestValidations = validations.filter(
-    (item, index) => validations.findIndex((entry) => entry.validator === item.validator) === index,
+  const nextGeneration = workflowStages.find((stage) =>
+    !["项目概览", "需求", "验证记录"].includes(stage.label) && stage.detail === "待生成",
   );
-  const failed = latestValidations.filter((item) => item.status === "FAILED").length;
-  const budget = spec.constraints.budget_cny.value;
-  const stale = artifacts.filter((item) => item.status === "NEEDS_CONFIRMATION").length;
-  const phases: [string, Tone, string][] = [
-    ["需求分析", "done", `v${project.current_spec_version}`],
-    ["系统架构", artifacts.some((x) => x.path.startsWith("02_")) ? "done" : "neutral", "工程资产"],
-    ["硬件方案", questions.length ? "waiting" : "active", questions.length ? "待确认" : "进行中"],
-    ["软件生成", artifacts.some((x) => x.path.startsWith("04_")) ? "done" : "neutral", "代码资产"],
-    ["工程验证", failed ? "danger" : latestValidations.length ? "done" : "neutral", latestValidations.length ? `${latestValidations.length} 类` : "未开始"],
-    ["实物测试", "neutral", "用户执行"],
-  ];
+  const currentStep = questionEntries.length
+    ? {
+        index: 1,
+        title: "澄清并确认需求",
+        objective: "先消除会影响选型、预算或实现方式的关键信息缺口。",
+        next: `回答：${questionEntries[0].item.value}`,
+      }
+    : pendingArtifact
+      ? {
+          index: 3,
+          title: "审阅并确认工程文件",
+          objective: "确认生成内容符合当前 ProjectSpec，同时保留尚未验证的工程边界。",
+          next: `审阅：${pendingArtifact.path}`,
+        }
+      : nextGeneration
+        ? {
+            index: 2,
+            title: `生成${nextGeneration.label}`,
+            objective: "基于当前 ProjectSpec 生成下一组可追踪的工程资产。",
+            next: `调用 ${nextGeneration.label} 生成工具`,
+          }
+        : {
+            index: 4,
+            title: "运行确定性工程验证",
+            objective: "检查硬件规则、协议一致性与代码静态质量，并记录真实结果。",
+            next: "选择验证范围并运行",
+          };
+  const nextModule = nextGeneration
+    ? moduleConfig[nextGeneration.label]?.module
+    : undefined;
   return <>
     <PageHead
       title={project.name}
@@ -1244,18 +1495,24 @@ function Overview({
     >
       <button className="button danger" onClick={onDelete}><Trash2 size={16} /> 删除项目</button>
       <button className="button secondary" onClick={exportProject}><Download size={16} /> 导出工程包</button>
-      <button className="button primary" onClick={() => setActive("需求")}>继续开发 <ArrowRight size={16} /></button>
+      <button className="button primary" onClick={() => onSuggestion("请根据当前状态规划下一步")}>继续对话 <ArrowRight size={16} /></button>
     </PageHead>
     <section className="conversation-workspace">
-      <header>
-        <div>
-          <span className="kicker">Plan-driven agent</span>
-          <h2>通过对话推进项目</h2>
-          <p>先识别意图和模糊项，再展示计划与工具；只有你确认后才更新 ProjectSpec 或生成工程资产。</p>
+      <header className="conversation-stage">
+        <AgentOrb active={busy} size="large" />
+        <div className="conversation-stage-copy">
+          <span className="kicker">Current step · {currentStep.index}/4</span>
+          <h2>{currentStep.title}</h2>
+          <p>{currentStep.objective}</p>
+          <small><ArrowRight size={12} />下一步：{currentStep.next}</small>
         </div>
-        <Badge tone={questions.length ? "waiting" : "done"}>
-          {questions.length ? `${questions.length} 项待澄清` : "需求已具备推进条件"}
-        </Badge>
+        <div className="conversation-stage-progress" aria-label="项目推进流程">
+          {["需求", "生成", "确认", "验证"].map((label, index) => (
+            <span className={index + 1 < currentStep.index ? "done" : index + 1 === currentStep.index ? "active" : ""} key={label}>
+              <i>{index + 1 < currentStep.index ? <Check size={10} /> : index + 1}</i>{label}
+            </span>
+          ))}
+        </div>
       </header>
       <div className="conversation-grid">
         <div className="conversation-main">
@@ -1265,6 +1522,18 @@ function Overview({
             onSuggestion={onSuggestion}
             onTool={onTool}
           />
+          <ConversationCheckpoint
+            key={questionEntries[0]
+              ? `question-${questionEntries[0].index}`
+              : pendingArtifact ? `artifact-${pendingArtifact.id}` : "complete"}
+            question={questionEntries[0]}
+            artifact={pendingArtifact}
+            currentSpecVersion={project.current_spec_version}
+            busy={busy}
+            onConfirmRequirement={onConfirmRequirement}
+            onRecommendRequirement={onRecommendRequirement}
+            onConfirmArtifact={onConfirmArtifact}
+          />
           <ConversationComposer
             value={message}
             busy={busy}
@@ -1273,70 +1542,51 @@ function Overview({
           />
         </div>
         <div className="conversation-plan">
-          <span className="kicker">当前推进计划</span>
-          {phases.map(([name, tone, detail], index) => (
+          <span className="kicker">Workflow 实时状态</span>
+          {workflowStages.filter((stage) => ["需求", "系统架构", "硬件方案", "固件代码", "验证记录"].includes(stage.label)).map((stage, index) => (
             <button
               type="button"
-              className={tone}
-              key={name}
-              onClick={() => {
-                const destinations = ["需求", "系统架构", "硬件方案", "固件代码", "验证记录", "验证记录"];
-                setActive(destinations[index]);
-              }}
+              className={stage.tone}
+              key={stage.label}
+              onClick={() => setActive(stage.destination)}
             >
-              <span>{tone === "done" ? <Check size={12} /> : index + 1}</span>
-              <div><strong>{name}</strong><small>{detail}</small></div>
+              <span>{stage.tone === "done" ? <Check size={12} /> : index + 1}</span>
+              <div><strong>{stage.label}</strong><small>{stage.detail}</small></div>
               <ChevronRight size={14} />
             </button>
           ))}
+          <div className="conversation-quick-tools">
+            <strong>推荐操作</strong>
+            <button type="button" disabled={busy} onClick={() => onSuggestion("检查当前还有哪些信息需要确认")}>
+              <Lightbulb size={13} />规划下一步
+            </button>
+            {nextModule && <button type="button" disabled={busy} onClick={() => onTool({
+              id: `guided-generate-${nextModule}`,
+              label: `生成${nextGeneration?.label}`,
+              description: "依据当前 ProjectSpec 生成下一模块。",
+              action: "generate",
+              target: nextModule,
+              requires_confirmation: false,
+            })}><Sparkles size={13} />生成{nextGeneration?.label}</button>}
+            <button type="button" disabled={busy} onClick={() => onTool({
+              id: "guided-validate-code",
+              label: "运行代码验证",
+              description: "运行云端确定性静态检查。",
+              action: "validate",
+              target: "code",
+              requires_confirmation: false,
+            })}><ClipboardCheck size={13} />运行静态验证</button>
+          </div>
           <p><ShieldCheck size={14} />真实硬件、上电、烧录与采购不会被自动执行。</p>
         </div>
       </div>
     </section>
-    <section className="card phase-card">
-      <Title kicker="开发路径" title="从需求到实物验证" extra={<small>{artifacts.length} 个文件</small>} />
-      <div className="phases">{phases.map(([name, tone, detail], index) => (
-        <div className={`phase ${tone}`} key={name}>
-          <div><span>{tone === "done" ? <Check size={13} /> : index + 1}</span>{index < 5 && <i />}</div>
-          <strong>{name}</strong><small>{detail}</small>
-        </div>
-      ))}</div>
-    </section>
-    <div className="metrics">
-      <Metric icon={<Sparkles />} tone="blue" label="下一步建议" value={questions[0]?.value ?? "运行工程验证"} />
-      <Metric icon={<AlertTriangle />} tone="amber" label="待确认与风险" value={`${questions.length + stale} 项待处理`} />
-      <Metric icon={<CircleDollarSign />} tone="green" label="BOM 预算" value={budget ? `¥${budget.toLocaleString()} 上限` : "待确认"} />
-      <Metric icon={<Code2 />} tone="violet" label="验证状态" value={failed ? `${failed} 项失败` : latestValidations.length ? "最新检查已通过" : "尚未运行"} />
-    </div>
-    <div className="columns">
-      <section className="card panel">
-        <Title kicker="ProjectSpec" title="需求事实源" extra={<button className="link" onClick={() => setActive("需求")}>查看全部 <ChevronRight size={14} /></button>} />
-        <div className="facts">
-          <Fact label="主控" traced={spec.hardware.preferred_controller} />
-          <Fact label="通信" traced={spec.hardware.communication.transport} />
-          <Fact label="预算" traced={{ ...spec.constraints.budget_cny, value: budget ? `¥${budget}` : "待确认" }} />
-          <Fact label="机器学习" traced={{ ...spec.software.machine_learning_required, value: spec.software.machine_learning_required.value ? "需要" : "不需要" }} />
-        </div>
-      </section>
-      <section className="card panel">
-        <Title kicker="澄清队列" title="优先处理" extra={<Badge tone={questions.length ? "danger" : "done"}>{questions.length} 项</Badge>} />
-        <div className="risks">
-          {questions.slice(0, 4).map((item) => <Risk key={item.value} icon={<AlertTriangle />} title={item.value} text={item.notes || "需要用户确认"} />)}
-          {questions.length === 0 && <Risk icon={<Check />} title="没有未回答的关键问题" text="可以继续生成和验证工程资产。" />}
-        </div>
-      </section>
-    </div>
   </>;
 }
 
-function Fact({ label, traced }: { label: string; traced: Traced<unknown> }) {
-  return <div><span>{label}</span><strong>{String(traced.value)}</strong><Badge tone={statusTone(traced.verification_status)}>{statusText[traced.verification_status] ?? traced.source}</Badge></div>;
-}
-
 function ModuleView({
-  title, description, artifacts, selected, preview, onOpen, onGenerate, onValidate,
-  projectId, projectSpecVersion, spec, disabled,
-  versions, onRestore, onConfirm, onRecommend, onConfirmArtifact,
+  title, description, artifacts, selected, preview, onOpen,
+  projectId, projectSpecVersion, spec, versions, onReturnToConversation,
 }: {
   title: string;
   description: string;
@@ -1344,46 +1594,31 @@ function ModuleView({
   selected: Artifact | null;
   preview: string;
   onOpen: (item: Artifact) => void;
-  onGenerate?: () => void;
-  onValidate?: () => void;
   projectId: string;
   projectSpecVersion: number;
   spec?: ProjectSpec;
   versions?: SpecVersion[];
-  onRestore?: (version: number) => void;
-  onConfirm?: (payload: {
-    field?: string;
-    value?: string | number;
-    question_index?: number;
-    answer?: string;
-  }) => Promise<void>;
-  onRecommend?: (payload: {
-    field?: string;
-    question_index?: number;
-  }) => Promise<ComponentRecommendation>;
-  onConfirmArtifact: (artifactId: string, note: string) => Promise<void>;
-  disabled: boolean;
+  onReturnToConversation: () => void;
 }) {
   return <>
     <PageHead title={title} kicker="工程模块" description={description}>
-      {onValidate && <button className="button secondary" disabled={disabled} onClick={onValidate}><ClipboardCheck size={16} /> 执行验证</button>}
-      {onGenerate && <button className="button primary" disabled={disabled} onClick={onGenerate}><Sparkles size={16} /> 使用 DeepSeek 生成</button>}
+      <button className="button primary" onClick={onReturnToConversation}><ArrowRight size={16} /> 返回对话推进</button>
     </PageHead>
+    <section className="module-conversation-notice">
+      <AgentOrb size="small" />
+      <div>
+        <strong>当前页面仅用于查看工程内容</strong>
+        <p>准备、生成、修改、确认和验证操作已统一移至项目概览的对话工作台，执行结果会自动更新本页与 Workflow。</p>
+      </div>
+    </section>
     {spec && <SpecSummary
       spec={spec}
       versions={versions ?? []}
-      onRestore={onRestore}
-      onConfirm={onConfirm}
-      onRecommend={onRecommend}
-      disabled={disabled}
     />}
-    {!spec && selected && <ArtifactConfirmationPanel
-      key={selected.id}
+    {!spec && selected && <ArtifactReviewStatus
       artifact={selected}
       moduleName={title}
       currentSpecVersion={projectSpecVersion}
-      disabled={disabled}
-      onConfirm={onConfirmArtifact}
     />}
     <div className="artifact-layout">
       <section className="card file-list">
@@ -1478,18 +1713,13 @@ const moduleReviewGuidance: Record<string, {
   },
 };
 
-function ArtifactConfirmationPanel({
-  artifact, moduleName, currentSpecVersion, disabled, onConfirm,
+function ArtifactReviewStatus({
+  artifact, moduleName, currentSpecVersion,
 }: {
   artifact: Artifact;
   moduleName: string;
   currentSpecVersion: number;
-  disabled: boolean;
-  onConfirm: (artifactId: string, note: string) => Promise<void>;
 }) {
-  const [note, setNote] = useState("");
-  const [acknowledged, setAcknowledged] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const confirmed = artifact.status === "USER_CONFIRMED";
   const stale = artifact.source_spec_version !== currentSpecVersion;
   const guidance = moduleReviewGuidance[moduleName] ?? {
@@ -1498,269 +1728,51 @@ function ArtifactConfirmationPanel({
     boundary: "确认文件内容不代表代码、器件、接线或实物测试已经通过。",
     example: "已核对文件内容与当前 ProjectSpec 一致，未验证事项保留清楚。",
   };
-  const fileName = artifact.path.split("/").at(-1) ?? artifact.path;
-
-  if (confirmed) {
-    return <section className="card artifact-confirmation confirmed">
-      <Check size={18} />
-      <div>
-        <strong>该工程文件已由用户确认</strong>
-        <p>{artifact.path} · 来源 ProjectSpec v{artifact.source_spec_version}。后续需求变更会自动将其重新标记为待确认。</p>
-      </div>
-      <Badge tone="done">用户已确认</Badge>
-    </section>;
-  }
-
-  return <section className={`card artifact-confirmation ${stale ? "stale" : ""}`}>
-    <div className="artifact-confirmation-head">
-      <div>
-        <span><ClipboardCheck size={17} /></span>
-        <div>
-          <strong>{stale ? "文件版本已过期，暂时不能确认" : `确认${moduleName}文件`}</strong>
-          <p>
-            {artifact.path} · 来源 ProjectSpec v{artifact.source_spec_version}
-            {stale ? `，当前为 v${currentSpecVersion}，请先重新生成。` : "。请人工阅读文件后记录确认依据。"}
-          </p>
-        </div>
-      </div>
-      <Badge tone={stale ? "danger" : "waiting"}>{stale ? "需要重新生成" : statusText[artifact.status] ?? "等待确认"}</Badge>
+  return <section className={`module-review-status ${confirmed ? "confirmed" : stale ? "stale" : ""}`}>
+    <ClipboardCheck size={17} />
+    <div>
+      <strong>{confirmed ? "该文件已由用户确认" : stale ? "该文件需要按最新需求重新生成" : "该文件仍等待人工确认"}</strong>
+      <p>{artifact.path} · 来源 ProjectSpec v{artifact.source_spec_version}。{guidance.boundary}</p>
     </div>
-    <div className="artifact-confirmation-body">
-      <aside className="review-explanation">
-        <header><Lightbulb size={16} /><strong>你正在确认什么</strong></header>
-        <dl>
-          <div><dt>确认对象</dt><dd>{fileName}（{artifact.kind.toUpperCase()} 文件）</dd></div>
-          <div><dt>文件用途</dt><dd>{guidance.purpose}</dd></div>
-          <div><dt>建议核对</dt><dd><ul>{guidance.checklist.map((item) => <li key={item}>{item}</li>)}</ul></dd></div>
-          <div><dt>确认后的影响</dt><dd>该文件会标记为“用户已确认”，同时在验证记录中保存确认说明、文件校验值与来源 ProjectSpec 版本。</dd></div>
-        </dl>
-        <p><AlertTriangle size={13} />{guidance.boundary}</p>
-      </aside>
-      {stale ? <div className="review-blocked">
-        <AlertTriangle size={20} />
-        <strong>确认操作暂不可用</strong>
-        <p>当前文件不是由最新 ProjectSpec 生成。请先点击本页“使用 DeepSeek 生成”，再核对和确认新文件。</p>
-      </div> : <div className="confirmation-controls">
-        <label className="artifact-confirmation-note">
-          <span>确认说明</span>
-          <textarea
-            aria-label={`确认说明：${artifact.path}`}
-            placeholder={`例如：${guidance.example}`}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-          />
-        </label>
-        <label className="artifact-confirmation-check">
-          <input
-            type="checkbox"
-            checked={acknowledged}
-            onChange={(event) => setAcknowledged(event.target.checked)}
-          />
-          <span>我已阅读左侧说明并人工核对该文件，理解“确认内容”与“验证工程结果”是两件不同的事。</span>
-        </label>
-        <button
-          type="button"
-          className="button primary compact"
-          disabled={disabled || submitting || !acknowledged || note.trim().length < 2}
-          onClick={() => {
-            setSubmitting(true);
-            void onConfirm(artifact.id, note.trim())
-              .then(() => {
-                setNote("");
-                setAcknowledged(false);
-              })
-              .catch(() => undefined)
-              .finally(() => setSubmitting(false));
-          }}
-        >
-          {submitting ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
-          {submitting ? "正在记录确认…" : "确认该文件"}
-        </button>
-      </div>}
-    </div>
+    <Badge tone={confirmed ? "done" : stale ? "danger" : "waiting"}>
+      {confirmed ? "已确认" : stale ? "版本过期" : "请回到对话处理"}
+    </Badge>
   </section>;
 }
 
-function SpecSummary({
-  spec, versions, onRestore, onConfirm, onRecommend, disabled,
-}: {
-  spec: ProjectSpec;
-  versions: SpecVersion[];
-  onRestore?: (version: number) => void;
-  onConfirm?: (payload: {
-    field?: string;
-    value?: string | number;
-    question_index?: number;
-    answer?: string;
-  }) => Promise<void>;
-  onRecommend?: (payload: {
-    field?: string;
-    question_index?: number;
-  }) => Promise<ComponentRecommendation>;
-  disabled: boolean;
-}) {
-  const [editing, setEditing] = useState("");
-  const [fieldValue, setFieldValue] = useState("");
-  const [answers, setAnswers] = useState<Record<number, string>>({});
-  const [recommendations, setRecommendations] = useState<Record<string, ComponentRecommendation>>({});
-  const cards: Array<{
-    field: string;
-    label: string;
-    display: string;
-    value: string;
-    traced: Traced<unknown>;
-    type?: "number";
-  }> = [
-    { field: "project.product_goal", label: "产品目标", display: String(spec.project.product_goal.value), value: String(spec.project.product_goal.value), traced: spec.project.product_goal },
-    { field: "user.target_user", label: "目标用户", display: String(spec.user.target_user.value), value: String(spec.user.target_user.value), traced: spec.user.target_user },
-    { field: "scenario.usage_environment", label: "使用环境", display: String(spec.scenario.usage_environment.value), value: String(spec.scenario.usage_environment.value), traced: spec.scenario.usage_environment },
-    { field: "hardware.preferred_controller", label: "主控偏好", display: String(spec.hardware.preferred_controller.value), value: String(spec.hardware.preferred_controller.value), traced: spec.hardware.preferred_controller },
-    { field: "constraints.budget_cny", label: "预算", display: spec.constraints.budget_cny.value ? `¥${spec.constraints.budget_cny.value}` : "待确认", value: spec.constraints.budget_cny.value ? String(spec.constraints.budget_cny.value) : "", traced: spec.constraints.budget_cny, type: "number" },
-    { field: "project.prototype_level", label: "原型等级", display: String(spec.project.prototype_level.value), value: String(spec.project.prototype_level.value), traced: spec.project.prototype_level },
+function SpecSummary({ spec, versions }: { spec: ProjectSpec; versions: SpecVersion[] }) {
+  const cards: Array<{ label: string; display: string; traced: Traced<unknown> }> = [
+    { label: "产品目标", display: String(spec.project.product_goal.value), traced: spec.project.product_goal },
+    { label: "目标用户", display: String(spec.user.target_user.value), traced: spec.user.target_user },
+    { label: "使用环境", display: String(spec.scenario.usage_environment.value), traced: spec.scenario.usage_environment },
+    { label: "主控偏好", display: String(spec.hardware.preferred_controller.value), traced: spec.hardware.preferred_controller },
+    { label: "预算", display: spec.constraints.budget_cny.value ? `¥${spec.constraints.budget_cny.value}` : "待确认", traced: spec.constraints.budget_cny },
+    { label: "原型等级", display: String(spec.project.prototype_level.value), traced: spec.project.prototype_level },
   ];
-  const questions = spec.open_questions.map((item, index) => ({ item, index }));
-  const pendingQuestions = questions.filter(({ item }) => item.verification_status !== "USER_CONFIRMED");
-  const resolvedQuestions = questions.filter(({ item }) => item.verification_status === "USER_CONFIRMED");
-  const controllerRecommendationKey = "field:hardware.preferred_controller";
-
-  async function loadRecommendations(
-    key: string,
-    payload: { field?: string; question_index?: number },
-  ) {
-    try {
-      const result = await onRecommend?.(payload);
-      if (result) setRecommendations((current) => ({ ...current, [key]: result }));
-    } catch { /* 全局错误条会展示后端错误 */ }
-  }
-
+  const pendingQuestions = spec.open_questions.filter(
+    (item) => item.verification_status !== "USER_CONFIRMED",
+  );
   return <>
-    <section className="card confirmation-guide">
-      <ClipboardCheck size={18} />
-      <div>
-        <strong>如何确认需求</strong>
-        <p>不知道具体元件时，先让 DeepSeek 比较 3 个候选，再选择一个写入 ProjectSpec；已有明确规格时也可手动填写。每次确认都会创建新版本，并把受影响文件标为待复核。</p>
-      </div>
-    </section>
-    <div className="spec-grid">{cards.map((card) => (
-      <article className="trace-card" key={card.field}>
+    <div className="spec-grid read-only">{cards.map((card) => (
+      <article className="trace-card" key={card.label}>
         <div><small>{card.label}</small><Badge tone={statusTone(card.traced.verification_status)}>{statusText[card.traced.verification_status] ?? "待确认"}</Badge></div>
-        {editing === card.field ? <div className="trace-editor">
-          <input
-            type={card.type === "number" ? "number" : "text"}
-            min={card.type === "number" ? "1" : undefined}
-            aria-label={`确认${card.label}`}
-            value={fieldValue}
-            onChange={(event) => setFieldValue(event.target.value)}
-          />
-          <div>
-            <button
-              type="button"
-              className="button primary compact"
-              disabled={disabled || !fieldValue.trim()}
-              onClick={async () => {
-                const value = card.type === "number" ? Number(fieldValue) : fieldValue.trim();
-                if (card.type === "number" && (!Number.isFinite(value) || Number(value) <= 0)) return;
-                try {
-                  await onConfirm?.({ field: card.field, value });
-                  setEditing("");
-                } catch { /* 全局错误条会展示后端错误 */ }
-              }}
-            >确认并创建新版本</button>
-            <button type="button" className="button secondary compact" onClick={() => setEditing("")}>取消</button>
-          </div>
-        </div> : <>
-          <strong>{card.display}</strong>
-          <p>来源：{card.traced.source} · 置信度 {Math.round(card.traced.confidence * 100)}%</p>
-          <button
-            type="button"
-            className="trace-edit"
-            disabled={disabled}
-            onClick={() => { setEditing(card.field); setFieldValue(card.value); }}
-          >{card.traced.verification_status === "USER_CONFIRMED" ? "修改已确认值" : "修改并确认"}</button>
-          {card.field === "hardware.preferred_controller" && <button
-            type="button"
-            className="trace-recommend"
-            disabled={disabled}
-            onClick={() => void loadRecommendations(
-              controllerRecommendationKey,
-              { field: "hardware.preferred_controller" },
-            )}
-          ><Lightbulb size={13} /> DeepSeek 推荐主控</button>}
-        </>}
+        <strong>{card.display}</strong>
+        <p>来源：{card.traced.source} · 置信度 {Math.round(card.traced.confidence * 100)}%</p>
       </article>
     ))}</div>
-    {recommendations[controllerRecommendationKey] && <RecommendationPanel
-      data={recommendations[controllerRecommendationKey]}
-      disabled={disabled}
-      onSelect={async (candidate) => {
-        await onConfirm?.({
-          field: "hardware.preferred_controller",
-          value: candidate.name,
-        });
-      }}
-    />}
-    <section className="card question-list">
+    <section className="card question-list read-only">
       <Title kicker="Open questions" title="关键待确认问题" extra={<Badge tone={pendingQuestions.length ? "waiting" : "done"}>{pendingQuestions.length} 项</Badge>} />
-      {pendingQuestions.map(({ item, index }) => <div className="question-item" key={`${index}-${item.value}`}>
+      {pendingQuestions.map((item, index) => <div className="question-item" key={`${index}-${item.value}`}>
         <AlertTriangle size={15} />
-        <div>
-          <strong>{item.value}</strong>
-          <div className="question-actions">
-            <button
-              type="button"
-              className="button secondary compact recommend-button"
-              disabled={disabled}
-              onClick={() => void loadRecommendations(
-                `question:${index}`,
-                { question_index: index },
-              )}
-            ><Lightbulb size={14} /> DeepSeek 推荐 3 个候选</button>
-            <small>候选只作为选择起点，关键电气参数仍需核对数据手册。</small>
-          </div>
-          {recommendations[`question:${index}`] && <RecommendationPanel
-            data={recommendations[`question:${index}`]}
-            disabled={disabled}
-            onSelect={async (candidate) => {
-              const verification = candidate.verification_required.join("、");
-              await onConfirm?.({
-                question_index: index,
-                answer: `选择候选：${candidate.name}。选择理由：${candidate.fit_reason}。待验证：${verification}。`,
-              });
-            }}
-          />}
-          <small className="manual-answer-label">如果你已有明确型号或规格，也可以直接填写：</small>
-          <textarea
-            aria-label={`回答问题：${item.value}`}
-            placeholder="填写已经确认的事实、规格或约束；不确定时请保留待确认。"
-            value={answers[index] ?? ""}
-            onChange={(event) => setAnswers((current) => ({ ...current, [index]: event.target.value }))}
-          />
-          <button
-            type="button"
-            className="button primary compact"
-            disabled={disabled || !(answers[index] ?? "").trim()}
-            onClick={async () => {
-              try {
-                await onConfirm?.({ question_index: index, answer: answers[index].trim() });
-                setAnswers((current) => ({ ...current, [index]: "" }));
-              } catch { /* 全局错误条会展示后端错误 */ }
-            }}
-          ><Check size={14} /> 确认回答</button>
-        </div>
+        <div><strong>{item.value}</strong><small>请回到项目概览，通过对话获取候选方案并完成确认。</small></div>
       </div>)}
-      {pendingQuestions.length === 0 && <p className="question-complete"><Check size={15} />关键问题均已确认，可以继续生成和验证工程资产。</p>}
-      {resolvedQuestions.length > 0 && <div className="resolved-list">
-        <small>已确认记录</small>
-        {resolvedQuestions.map(({ item, index }) => <p key={`${index}-${item.value}`}><Check size={13} /><span><strong>{item.value}</strong>{item.notes?.replace(/^用户回答：/, "")}</span></p>)}
-      </div>}
+      {pendingQuestions.length === 0 && <p className="question-complete"><Check size={15} />关键问题均已确认。</p>}
     </section>
-    <section className="card version-list">
+    <section className="card version-list read-only">
       <Title kicker="Version history" title="ProjectSpec 版本" extra={<small>{versions.length} 个版本</small>} />
       {versions.map((item) => <div key={item.version}>
         <div><strong>v{item.version} · {item.reason}</strong><small>{item.affected_modules.join("、")}</small></div>
-        {item.is_current
-          ? <Badge tone="done">当前版本</Badge>
-          : <button className="button secondary compact" disabled={disabled} onClick={() => onRestore?.(item.version)}>恢复此版本</button>}
+        <Badge tone={item.is_current ? "done" : "neutral"}>{item.is_current ? "当前版本" : "历史版本"}</Badge>
       </div>)}
     </section>
   </>;
@@ -1885,12 +1897,6 @@ function PageHead({ title, kicker, description, children }: { title: string; kic
 }
 function Title({ kicker, title, extra }: { kicker: string; title: string; extra: ReactNode }) {
   return <div className="title-row"><div><span className="kicker">{kicker}</span><h2>{title}</h2></div>{extra}</div>;
-}
-function Metric({ icon, tone, label, value }: { icon: ReactNode; tone: string; label: string; value: string }) {
-  return <article className="metric"><span className={tone}>{icon}</span><div><small>{label}</small><strong title={value}>{value}</strong></div></article>;
-}
-function Risk({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
-  return <div className="risk">{icon}<div><strong>{title}</strong><small>{text}</small></div></div>;
 }
 function Field({ label, placeholder, area = false, value, onChange }: { label: string; placeholder: string; area?: boolean; value: string; onChange: (value: string) => void }) {
   return <label className="field"><span>{label}</span>{area ? <textarea placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} /> : <input placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />}</label>;
@@ -2084,7 +2090,7 @@ function PlanningCreateModal({
 
       {!plan ? <div className="planning-dialog">
         <div className="planning-agent-message">
-          <span><Bot size={17} /></span>
+          <AgentOrb active={planning} size="medium" />
           <div>
             <strong>先说想法，不需要填写完整表单</strong>
             <p>我会把模糊描述整理成计划，给出推测选项和拟调用工具。确认前不会创建项目或写入 ProjectSpec。</p>
@@ -2113,7 +2119,7 @@ function PlanningCreateModal({
       </div> : <div className="planning-review">
         <div className="planning-conversation">
           <div className="message user"><p>{idea}</p></div>
-          <div className="message assistant"><span><Bot size={14} /></span><p>{plan.summary}</p></div>
+          <div className="message assistant"><AgentOrb size="small" /><p>{plan.summary}</p></div>
         </div>
 
         <section className="plan-intent">
