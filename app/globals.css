@@ -2625,67 +2625,114 @@ textarea:focus-visible,
   flex: 0 0 auto;
   place-items: center;
   overflow: visible;
-  border-radius: 50% !important;
+  border-radius: 47% 53% 51% 49% / 52% 46% 54% 48%;
   background:
-    radial-gradient(circle at 38% 34%, rgba(255, 255, 255, 0.98) 0 6%, rgba(199, 226, 238, 0.95) 19%, rgba(91, 126, 148, 0.98) 51%, #233944 73%);
+    radial-gradient(circle at 43% 34%, rgba(235, 238, 239, 0.16) 0 7%, transparent 21%),
+    radial-gradient(circle at 50% 51%, #252b2e 0 43%, #343b3f 47%, transparent 51%),
+    conic-gradient(
+      from 218deg,
+      #4c555a 0deg,
+      #aeb4b7 48deg,
+      #f1f2f2 86deg,
+      #7a8388 139deg,
+      #c9cdcf 201deg,
+      #444d52 267deg,
+      #91999d 321deg,
+      #4c555a 360deg
+    );
   color: transparent !important;
   box-shadow:
-    0 0 0 1px rgba(69, 98, 116, 0.14),
-    0 0 20px rgba(102, 151, 178, 0.24),
-    inset 0 1px 5px rgba(255, 255, 255, 0.68) !important;
+    0 0 0 1px rgba(50, 59, 64, 0.2),
+    0 0 18px rgba(64, 74, 79, 0.2),
+    inset 0 1px 4px rgba(255, 255, 255, 0.62) !important;
   isolation: isolate;
-  will-change: transform, filter, box-shadow;
-  animation: orb-breathe calc(6.4s * var(--orb-tempo)) cubic-bezier(0.37, 0, 0.18, 1) infinite;
+  will-change: transform, filter, border-radius, box-shadow;
+  animation: orb-organic-breathe calc(7.3s * var(--orb-tempo)) cubic-bezier(0.37, 0, 0.18, 1) infinite;
 }
 
 .agent-orb::before,
 .agent-orb::after {
   position: absolute;
-  border-radius: inherit;
   content: "";
   pointer-events: none;
 }
 
 .agent-orb::before {
-  inset: -5px;
+  inset: -8%;
   z-index: -1;
-  background: conic-gradient(from 0deg, transparent 0 18%, rgba(102, 153, 181, 0.66) 34%, transparent 52% 70%, rgba(181, 211, 225, 0.55) 87%, transparent);
-  filter: blur(1px);
-  transform-origin: 48% 53%;
-  will-change: transform, opacity, filter;
-  animation: orb-aura-drift calc(8.7s * var(--orb-tempo)) cubic-bezier(0.45, 0.04, 0.2, 1) infinite;
+  border-radius: 55% 45% 48% 52% / 42% 57% 43% 58%;
+  background:
+    conic-gradient(
+      from 42deg,
+      rgba(247, 248, 248, 0.88),
+      rgba(95, 105, 110, 0.18) 16%,
+      rgba(67, 77, 82, 0.74) 34%,
+      rgba(207, 212, 214, 0.86) 53%,
+      rgba(87, 97, 102, 0.3) 73%,
+      rgba(237, 239, 240, 0.8)
+    );
+  filter: blur(2px);
+  transform-origin: 47% 54%;
+  will-change: transform, opacity, filter, border-radius;
+  animation: orb-aura-morph calc(9.6s * var(--orb-tempo)) cubic-bezier(0.44, 0.02, 0.18, 1) infinite;
 }
 
 .agent-orb::after {
-  inset: -10px;
+  inset: -23%;
   z-index: -2;
-  border: 1px solid rgba(95, 142, 168, 0.16);
-  opacity: 0.7;
+  border: 1px solid rgba(78, 89, 94, 0.16);
+  border-radius: 50%;
+  opacity: 0;
   will-change: transform, opacity, border-color;
-  animation: orb-signal calc(5.3s * var(--orb-tempo)) cubic-bezier(0.22, 0.61, 0.32, 1) infinite;
+  animation: orb-signal calc(6.1s * var(--orb-tempo)) cubic-bezier(0.22, 0.61, 0.32, 1) infinite;
 }
 
 .agent-orb i {
-  width: 36%;
-  height: 36%;
-  border-radius: 50%;
-  background: rgba(248, 253, 255, 0.9);
-  filter: blur(1px);
-  box-shadow: 0 0 9px rgba(237, 249, 255, 0.9);
+  position: absolute;
+  inset: 8%;
+  border-radius: 43% 57% 48% 52% / 54% 43% 57% 46%;
+  background:
+    radial-gradient(circle at 35% 21%, rgba(255, 255, 255, 0.44) 0 5%, transparent 25%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 43% 66%, rgba(184, 191, 194, 0.1));
+  filter: blur(1.6px);
+  mix-blend-mode: screen;
+  opacity: 0.66;
   will-change: transform, opacity, filter;
-  animation: orb-core-wander calc(4.9s * var(--orb-tempo)) cubic-bezier(0.33, 0, 0.2, 1) infinite;
+  animation: orb-light-flow calc(6.8s * var(--orb-tempo)) cubic-bezier(0.33, 0, 0.2, 1) infinite;
 }
 
 .agent-orb b {
   position: absolute;
-  width: 76%;
-  height: 25%;
-  border-radius: 50%;
-  background: rgba(214, 239, 250, 0.3);
-  filter: blur(4px);
-  transform: rotate(-18deg);
+  inset: 0;
+  background: transparent;
+  will-change: transform;
+  animation: orb-gaze calc(9.2s * var(--orb-tempo)) cubic-bezier(0.42, 0, 0.19, 1) infinite;
+}
+
+.agent-orb b::before,
+.agent-orb b::after {
+  position: absolute;
+  top: 41%;
+  width: 10%;
+  height: 23%;
+  border-radius: 999px;
+  background: #f1f2f2;
+  box-shadow:
+    0 0 4px rgba(255, 255, 255, 0.58),
+    inset 0 -1px 1px rgba(104, 112, 116, 0.28);
+  content: "";
+  transform-origin: center;
   will-change: transform, opacity;
-  animation: orb-energy-sweep calc(7.6s * var(--orb-tempo)) cubic-bezier(0.4, 0, 0.16, 1) infinite;
+  animation: orb-eye-blink calc(8.1s * var(--orb-tempo)) ease-in-out infinite;
+}
+
+.agent-orb b::before {
+  left: 33%;
+}
+
+.agent-orb b::after {
+  right: 33%;
+  animation-delay: calc(-0.06s * var(--orb-tempo));
 }
 
 .agent-orb.small {
@@ -2704,182 +2751,205 @@ textarea:focus-visible,
 }
 
 .agent-orb.active {
-  --orb-tempo: 0.58;
+  --orb-tempo: 0.62;
   box-shadow:
-    0 0 0 1px rgba(69, 98, 116, 0.18),
-    0 0 28px rgba(92, 149, 180, 0.34),
-    inset 0 1px 6px rgba(255, 255, 255, 0.78) !important;
+    0 0 0 1px rgba(47, 56, 61, 0.24),
+    0 0 28px rgba(68, 79, 85, 0.31),
+    inset 0 1px 6px rgba(255, 255, 255, 0.74) !important;
 }
 
 .agent-orb.active::before {
-  filter: blur(0.6px) saturate(1.18);
+  filter: blur(1.2px) contrast(1.08);
 }
 
 .message > .agent-orb,
 .agent-head > div > .agent-orb,
 .conversation-welcome > .agent-orb {
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 38% 34%, rgba(255, 255, 255, 0.98) 0 6%, rgba(199, 226, 238, 0.95) 19%, rgba(91, 126, 148, 0.98) 51%, #233944 73%);
+  flex-shrink: 0;
 }
 
-@keyframes orb-breathe {
+@keyframes orb-organic-breathe {
   0%, 100% {
-    transform: scale(0.96) translate3d(0, 0, 0);
-    filter: saturate(0.92) brightness(0.98);
+    border-radius: 47% 53% 51% 49% / 52% 46% 54% 48%;
+    transform: scale(0.97) translate3d(0, 0, 0);
+    filter: brightness(0.98) contrast(1);
+  }
+  13% {
+    border-radius: 55% 45% 46% 54% / 43% 58% 42% 57%;
+    transform: scale(1.025) translate3d(0.5px, -0.7px, 0);
+    filter: brightness(1.035) contrast(1.03);
+  }
+  28% {
+    border-radius: 49% 51% 57% 43% / 55% 45% 55% 45%;
+    transform: scale(1.005) translate3d(-0.45px, -0.15px, 0);
+    filter: brightness(1) contrast(1.01);
+  }
+  44% {
+    border-radius: 43% 57% 49% 51% / 48% 52% 45% 55%;
+    transform: scale(0.98) translate3d(-0.65px, 0.6px, 0);
+    filter: brightness(0.985) contrast(1.02);
+  }
+  63% {
+    border-radius: 54% 46% 44% 56% / 57% 43% 58% 42%;
+    transform: scale(1.04) translate3d(0.75px, 0.25px, 0);
+    filter: brightness(1.045) contrast(1.04);
+  }
+  72% {
+    border-radius: 50% 50% 54% 46% / 45% 55% 49% 51%;
+    transform: scale(1.012) translate3d(0.15px, -0.3px, 0);
+    filter: brightness(1.01) contrast(1);
+  }
+  87% {
+    border-radius: 45% 55% 52% 48% / 56% 44% 53% 47%;
+    transform: scale(0.988) translate3d(-0.3px, 0.35px, 0);
+    filter: brightness(0.99) contrast(1.01);
+  }
+}
+
+@keyframes orb-aura-morph {
+  0% {
+    border-radius: 55% 45% 48% 52% / 42% 57% 43% 58%;
+    opacity: 0.62;
+    transform: rotate(-8deg) scale(0.96) translate3d(0, 0, 0);
   }
   14% {
-    transform: scale(1.035) translate3d(0.6px, -0.8px, 0);
-    filter: saturate(1.13) brightness(1.03);
+    border-radius: 44% 56% 58% 42% / 55% 43% 57% 45%;
+    opacity: 0.9;
+    transform: rotate(18deg) scale(1.08) translate3d(0.8px, -0.5px, 0);
   }
-  24% {
-    transform: scale(1.012) translate3d(-0.3px, -0.2px, 0);
-    filter: saturate(1.02) brightness(1);
+  31% {
+    border-radius: 58% 42% 45% 55% / 47% 59% 41% 53%;
+    opacity: 0.55;
+    transform: rotate(47deg) scale(1) translate3d(-0.6px, -0.9px, 0);
   }
-  47% {
-    transform: scale(0.975) translate3d(-0.7px, 0.7px, 0);
-    filter: saturate(0.96) brightness(0.99);
+  46% {
+    border-radius: 48% 52% 57% 43% / 59% 41% 51% 49%;
+    opacity: 0.82;
+    transform: rotate(76deg) scale(1.05) translate3d(-0.9px, 0.5px, 0);
   }
-  61% {
-    transform: scale(1.055) translate3d(0.8px, 0.25px, 0);
-    filter: saturate(1.18) brightness(1.045);
-  }
-  68% {
-    transform: scale(1.02) translate3d(0.2px, -0.25px, 0);
-    filter: saturate(1.07) brightness(1.01);
-  }
-  86% {
-    transform: scale(0.985) translate3d(-0.35px, 0.4px, 0);
-    filter: saturate(0.98) brightness(0.99);
-  }
-}
-
-@keyframes orb-aura-drift {
-  0% {
-    opacity: 0.7;
-    transform: rotate(0deg) scale(0.95) translate3d(0, 0, 0);
-  }
-  12% {
-    opacity: 0.92;
-    transform: rotate(42deg) scale(1.08) translate3d(1px, -0.5px, 0);
-  }
-  29% {
-    opacity: 0.58;
-    transform: rotate(97deg) scale(0.99) translate3d(-0.5px, -1px, 0);
-  }
-  43% {
-    opacity: 0.8;
-    transform: rotate(171deg) scale(1.04) translate3d(-1px, 0.5px, 0);
-  }
-  51% {
+  57% {
+    border-radius: 42% 58% 50% 50% / 45% 54% 46% 55%;
     opacity: 0.66;
-    transform: rotate(196deg) scale(0.97) translate3d(0.4px, 0.8px, 0);
+    transform: rotate(63deg) scale(0.98) translate3d(0.35px, 0.75px, 0);
   }
-  73% {
-    opacity: 0.94;
-    transform: rotate(304deg) scale(1.1) translate3d(0.8px, -0.6px, 0);
+  74% {
+    border-radius: 53% 47% 43% 57% / 56% 46% 54% 44%;
+    opacity: 0.91;
+    transform: rotate(112deg) scale(1.09) translate3d(0.75px, -0.55px, 0);
   }
-  82% {
-    opacity: 0.62;
-    transform: rotate(287deg) scale(1.01) translate3d(-0.7px, 0.2px, 0);
+  84% {
+    border-radius: 57% 43% 51% 49% / 43% 57% 47% 53%;
+    opacity: 0.58;
+    transform: rotate(98deg) scale(1.01) translate3d(-0.65px, 0.2px, 0);
   }
   100% {
-    opacity: 0.7;
-    transform: rotate(360deg) scale(0.95) translate3d(0, 0, 0);
+    border-radius: 55% 45% 48% 52% / 42% 57% 43% 58%;
+    opacity: 0.62;
+    transform: rotate(172deg) scale(0.96) translate3d(0, 0, 0);
   }
 }
 
 @keyframes orb-signal {
-  0%, 8% {
+  0%, 10% {
     opacity: 0;
-    transform: scale(0.76);
-    border-color: rgba(95, 142, 168, 0.1);
+    transform: scale(0.68);
+    border-color: rgba(74, 85, 90, 0.08);
   }
-  18% {
-    opacity: 0.74;
-    transform: scale(0.9);
-    border-color: rgba(111, 167, 195, 0.23);
+  19% {
+    opacity: 0.58;
+    transform: scale(0.84);
+    border-color: rgba(76, 87, 92, 0.2);
   }
-  39% {
+  38% {
     opacity: 0;
-    transform: scale(1.42);
-    border-color: rgba(95, 142, 168, 0.08);
+    transform: scale(1.27);
+    border-color: rgba(74, 85, 90, 0.06);
   }
-  54%, 62% {
+  52%, 65% {
     opacity: 0;
-    transform: scale(0.82);
+    transform: scale(0.74);
   }
-  69% {
-    opacity: 0.52;
-    transform: scale(0.94);
+  73% {
+    opacity: 0.4;
+    transform: scale(0.88);
   }
-  78% {
-    opacity: 0.16;
-    transform: scale(1.18);
+  82% {
+    opacity: 0.12;
+    transform: scale(1.08);
   }
   100% {
     opacity: 0;
-    transform: scale(1.54);
+    transform: scale(1.38);
   }
 }
 
-@keyframes orb-core-wander {
+@keyframes orb-light-flow {
   0%, 100% {
-    opacity: 0.88;
-    transform: translate3d(-12%, -10%, 0) scale(0.9);
-    filter: blur(1px);
+    border-radius: 43% 57% 48% 52% / 54% 43% 57% 46%;
+    opacity: 0.54;
+    transform: translate3d(-5%, -4%, 0) rotate(-8deg) scale(0.92);
+    filter: blur(1.8px);
   }
-  17% {
-    opacity: 1;
-    transform: translate3d(10%, -16%, 0) scale(1.16);
-    filter: blur(0.7px);
-  }
-  38% {
-    opacity: 0.72;
-    transform: translate3d(17%, 8%, 0) scale(0.82);
-    filter: blur(1.5px);
-  }
-  57% {
-    opacity: 0.96;
-    transform: translate3d(-3%, 17%, 0) scale(1.08);
-    filter: blur(0.8px);
-  }
-  72% {
-    opacity: 0.8;
-    transform: translate3d(-18%, 3%, 0) scale(0.94);
+  18% {
+    border-radius: 57% 43% 51% 49% / 45% 55% 42% 58%;
+    opacity: 0.82;
+    transform: translate3d(5%, -8%, 0) rotate(14deg) scale(1.08);
     filter: blur(1.25px);
   }
-  84% {
-    opacity: 1;
-    transform: translate3d(4%, -6%, 0) scale(1.2);
-    filter: blur(0.65px);
+  39% {
+    border-radius: 48% 52% 42% 58% / 57% 44% 56% 43%;
+    opacity: 0.38;
+    transform: translate3d(7%, 4%, 0) rotate(5deg) scale(0.86);
+    filter: blur(2.2px);
+  }
+  61% {
+    border-radius: 52% 48% 58% 42% / 43% 57% 48% 52%;
+    opacity: 0.76;
+    transform: translate3d(-3%, 7%, 0) rotate(-17deg) scale(1.04);
+    filter: blur(1.35px);
+  }
+  78% {
+    border-radius: 46% 54% 49% 51% / 58% 42% 54% 46%;
+    opacity: 0.46;
+    transform: translate3d(-7%, 1%, 0) rotate(-4deg) scale(0.9);
+    filter: blur(2px);
+  }
+  89% {
+    opacity: 0.88;
+    transform: translate3d(2%, -5%, 0) rotate(11deg) scale(1.1);
+    filter: blur(1.15px);
   }
 }
 
-@keyframes orb-energy-sweep {
+@keyframes orb-gaze {
   0%, 100% {
-    opacity: 0.32;
-    transform: rotate(-18deg) translate3d(-6%, 5%, 0) scaleX(0.86);
+    transform: translate3d(0, 0, 0) rotate(0deg);
   }
-  21% {
-    opacity: 0.58;
-    transform: rotate(11deg) translate3d(8%, -13%, 0) scaleX(1.13);
+  16%, 27% {
+    transform: translate3d(-3.5%, -1.5%, 0) rotate(-1deg);
   }
-  34% {
-    opacity: 0.22;
-    transform: rotate(4deg) translate3d(13%, 2%, 0) scaleX(0.76);
+  38% {
+    transform: translate3d(2%, 1%, 0) rotate(0.5deg);
   }
-  56% {
-    opacity: 0.5;
-    transform: rotate(-31deg) translate3d(-4%, 14%, 0) scaleX(1.05);
+  51%, 65% {
+    transform: translate3d(4%, -2.5%, 0) rotate(1deg);
   }
-  79% {
-    opacity: 0.18;
-    transform: rotate(-8deg) translate3d(-14%, -7%, 0) scaleX(0.72);
+  76% {
+    transform: translate3d(-1%, 2.5%, 0) rotate(-0.4deg);
   }
-  88% {
-    opacity: 0.46;
-    transform: rotate(17deg) translate3d(2%, -11%, 0) scaleX(1.09);
+  88%, 94% {
+    transform: translate3d(1.5%, 0, 0) rotate(0.3deg);
+  }
+}
+
+@keyframes orb-eye-blink {
+  0%, 23%, 26%, 64%, 67%, 88%, 91%, 100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  24.2%, 65.3%, 89.2% {
+    opacity: 0.78;
+    transform: scaleY(0.13);
   }
 }
 

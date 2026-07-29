@@ -128,11 +128,13 @@ test("overview is conversation-first and no longer renders the duplicated dashbo
   assert.doesNotMatch(page, /<section className="card phase-card">/);
   assert.doesNotMatch(page, /<div className="metrics">/);
   assert.doesNotMatch(page, /<div className="columns">/);
-  assert.match(css, /@keyframes orb-breathe/);
-  assert.match(css, /@keyframes orb-aura-drift/);
+  assert.match(css, /@keyframes orb-organic-breathe/);
+  assert.match(css, /@keyframes orb-aura-morph/);
   assert.match(css, /@keyframes orb-signal/);
-  assert.match(css, /@keyframes orb-core-wander/);
-  assert.match(css, /@keyframes orb-energy-sweep/);
+  assert.match(css, /@keyframes orb-light-flow/);
+  assert.match(css, /@keyframes orb-gaze/);
+  assert.match(css, /@keyframes orb-eye-blink/);
+  assert.match(css, /\.agent-orb b::before/);
   assert.doesNotMatch(css, /@keyframes orb-rotate/);
   assert.match(css, /\.workflow-state\.waiting/);
 });
