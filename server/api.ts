@@ -970,6 +970,19 @@ export async function handleApi(
       const updated = await getProject(env, owner, projectId);
       return jsonResponse(projectView(updated));
     }
+    if (parts.length === 3 && method === "DELETE") {
+      await env.database.batch([
+        env.database.prepare("DELETE FROM validations WHERE project_id = ?").bind(projectId),
+        env.database.prepare("DELETE FROM artifacts WHERE project_id = ?").bind(projectId),
+        env.database.prepare("DELETE FROM agent_runs WHERE project_id = ?").bind(projectId),
+        env.database.prepare("DELETE FROM messages WHERE project_id = ?").bind(projectId),
+        env.database.prepare("DELETE FROM project_versions WHERE project_id = ?").bind(projectId),
+        env.database.prepare(
+          "DELETE FROM projects WHERE id = ? AND owner = ?",
+        ).bind(projectId, owner),
+      ]);
+      return new Response(null, { status: 204 });
+    }
 
     if (parts[3] === "spec" && parts.length === 4 && method === "GET") {
       return jsonResponse(await getSpec(env, owner, projectId));
@@ -1190,6 +1203,71 @@ export async function handleApi(
         id: row.id, kind: row.kind, path: row.path, status: row.status,
         source_spec_version: row.source_spec_version,
       })));
+    }
+    if (
+      parts[3] === "artifacts" && parts[4] &&
+      parts[5] === "confirmations" && parts.length === 6 &&
+      method === "POST"
+    ) {
+      const payload = await readBody<{ note?: string }>(request);
+      const note = payload.note?.trim() || "";
+      if (note.length < 2 || note.length > 1000) {
+        throw new ApiError(422, "确认说明需要 2–1000 个字符");
+      }
+      const row = await one<ArtifactRow>(
+        env,
+        "SELECT * FROM artifacts WHERE id = ? AND project_id = ?",
+        [parts[4], projectId],
+      );
+      if (!row) throw new ApiError(404, "文件不存在");
+      if (row.source_spec_version !== project.current_spec_version) {
+        throw new ApiError(
+          409,
+          `该文件来自 ProjectSpec v${row.source_spec_version}，请按当前 v${project.current_spec_version} 重新生成后再确认`,
+        );
+      }
+      if (row.status === "USER_CONFIRMED") {
+        throw new ApiError(409, "该文件已经确认");
+      }
+      const confirmedAt = timestamp();
+      const report = {
+        artifact_id: row.id,
+        path: row.path,
+        checksum: row.checksum,
+        source_spec_version: row.source_spec_version,
+        confirmation_note: note,
+        confirmed_by: "user",
+        scope: "content_review",
+        limitations: [
+          "不代表 Python 测试或 PlatformIO 编译已经执行",
+          "不代表具体器件参数、接线或实物测试已经通过",
+        ],
+      };
+      await env.database.batch([
+        env.database.prepare(
+          "UPDATE artifacts SET status = 'USER_CONFIRMED', updated_at = ? WHERE id = ? AND project_id = ?",
+        ).bind(confirmedAt, row.id, projectId),
+        env.database.prepare(
+          "INSERT INTO validations (id, project_id, validator, status, report, created_at) VALUES (?, ?, ?, 'USER_CONFIRMED', ?, ?)",
+        ).bind(
+          uid(),
+          projectId,
+          `artifact-review:${row.path}`,
+          JSON.stringify(report),
+          confirmedAt,
+        ),
+        env.database.prepare(
+          "UPDATE projects SET updated_at = ? WHERE id = ?",
+        ).bind(confirmedAt, projectId),
+      ]);
+      return jsonResponse({
+        id: row.id,
+        kind: row.kind,
+        path: row.path,
+        status: "USER_CONFIRMED",
+        source_spec_version: row.source_spec_version,
+        confirmation: report,
+      });
     }
     if (parts[3] === "artifacts" && parts[4] && parts[5] === "content" && method === "GET") {
       const row = await one<ArtifactRow>(

@@ -5,7 +5,7 @@ import {
   Clipboard, ClipboardCheck, Code2, Cpu, Download, FileCode2, FileText,
   FolderOpen, GitBranch, Home, Layers3, LoaderCircle, Menu, PackageSearch,
   Lightbulb, Plus, Send, Settings2, ShieldCheck, Sparkles, TestTube2,
-  Unplug, X,
+  Trash2, Unplug, X,
 } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -296,6 +296,7 @@ export default function HomePage() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [project, setProject] = useState<ProjectSummary | null>(null);
   const [spec, setSpec] = useState<ProjectSpec | null>(null);
@@ -423,6 +424,39 @@ export default function HomePage() {
     setMessages([{ role: "agent", text: result.agent.summary }]);
     setCreateOpen(false);
     setActive("项目概览");
+  }
+
+  async function deleteCurrentProject() {
+    if (!project || busy) return;
+    const deletedId = project.id;
+    setBusy("正在删除项目及其工程记录");
+    setError("");
+    try {
+      await request(`/api/projects/${deletedId}`, { method: "DELETE" });
+      const remaining = await request<ProjectSummary[]>("/api/projects");
+      setProjects(remaining);
+      setDeleteOpen(false);
+      setActive("项目概览");
+      setSelectedArtifact(null);
+      setPreview("");
+      if (remaining.length > 0) {
+        await loadProject(remaining[0].id);
+      } else {
+        setProject(null);
+        setSpec(null);
+        setArtifacts([]);
+        setRuns([]);
+        setValidations([]);
+        setVersions([]);
+        setMessages([]);
+        localStorage.removeItem("dpa-current-project");
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "项目删除失败");
+      throw reason;
+    } finally {
+      setBusy("");
+    }
   }
 
   async function send(event: FormEvent) {
@@ -562,6 +596,30 @@ export default function HomePage() {
     }
   }
 
+  async function confirmArtifact(artifactId: string, note: string) {
+    if (!project || busy) return;
+    setBusy("正在记录工程文件人工确认");
+    setError("");
+    try {
+      const result = await request<Artifact & { confirmation: Record<string, unknown> }>(
+        `/api/projects/${project.id}/artifacts/${artifactId}/confirmations`,
+        {
+          method: "POST",
+          body: JSON.stringify({ note }),
+        },
+      );
+      await refreshCurrent();
+      setSelectedArtifact((current) =>
+        current?.id === artifactId ? { ...current, ...result } : current,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "工程文件确认失败");
+      throw reason;
+    } finally {
+      setBusy("");
+    }
+  }
+
   function exportProject() {
     if (project) window.location.assign(`${API_URL}/api/projects/${project.id}/export`);
   }
@@ -633,6 +691,7 @@ export default function HomePage() {
               validations={validations}
               setActive={setActive}
               exportProject={exportProject}
+              onDelete={() => setDeleteOpen(true)}
             />
           ) : active === "验证记录" ? (
             <ValidationView validations={validations} runs={runs} capabilities={capabilities} />
@@ -647,11 +706,13 @@ export default function HomePage() {
               onGenerate={moduleConfig[active]?.module ? () => void generateCurrent(moduleConfig[active].module!) : undefined}
               onValidate={validationTarget ? () => void validateCurrent(validationTarget) : undefined}
               projectId={project.id}
+              projectSpecVersion={project.current_spec_version}
               spec={active === "需求" ? spec : undefined}
               versions={active === "需求" ? versions : undefined}
               onRestore={restoreVersion}
               onConfirm={confirmRequirement}
               onRecommend={recommendRequirement}
+              onConfirmArtifact={confirmArtifact}
               disabled={Boolean(busy)}
             />
           )}
@@ -687,6 +748,12 @@ export default function HomePage() {
       </div>
 
       {createOpen && <CreateModal close={() => setCreateOpen(false)} onCreate={createProject} />}
+      {deleteOpen && project && <DeleteProjectModal
+        project={project}
+        disabled={Boolean(busy)}
+        close={() => setDeleteOpen(false)}
+        onDelete={deleteCurrentProject}
+      />}
     </main>
   );
 }
@@ -701,7 +768,7 @@ function EmptyHome({ loading, onCreate }: { loading: boolean; onCreate: () => vo
 }
 
 function Overview({
-  project, spec, artifacts, validations, setActive, exportProject,
+  project, spec, artifacts, validations, setActive, exportProject, onDelete,
 }: {
   project: ProjectSummary;
   spec: ProjectSpec;
@@ -709,6 +776,7 @@ function Overview({
   validations: Validation[];
   setActive: (value: string) => void;
   exportProject: () => void;
+  onDelete: () => void;
 }) {
   const questions = (spec.open_questions ?? []).filter(
     (item) => item.verification_status !== "USER_CONFIRMED",
@@ -733,6 +801,7 @@ function Overview({
       kicker={`● ProjectSpec v${project.current_spec_version}`}
       description={spec.project.product_goal.value}
     >
+      <button className="button danger" onClick={onDelete}><Trash2 size={16} /> 删除项目</button>
       <button className="button secondary" onClick={exportProject}><Download size={16} /> 导出工程包</button>
       <button className="button primary" onClick={() => setActive("需求")}>继续开发 <ArrowRight size={16} /></button>
     </PageHead>
@@ -778,8 +847,8 @@ function Fact({ label, traced }: { label: string; traced: Traced<unknown> }) {
 
 function ModuleView({
   title, description, artifacts, selected, preview, onOpen, onGenerate, onValidate,
-  projectId, spec, disabled,
-  versions, onRestore, onConfirm, onRecommend,
+  projectId, projectSpecVersion, spec, disabled,
+  versions, onRestore, onConfirm, onRecommend, onConfirmArtifact,
 }: {
   title: string;
   description: string;
@@ -790,6 +859,7 @@ function ModuleView({
   onGenerate?: () => void;
   onValidate?: () => void;
   projectId: string;
+  projectSpecVersion: number;
   spec?: ProjectSpec;
   versions?: SpecVersion[];
   onRestore?: (version: number) => void;
@@ -803,6 +873,7 @@ function ModuleView({
     field?: string;
     question_index?: number;
   }) => Promise<ComponentRecommendation>;
+  onConfirmArtifact: (artifactId: string, note: string) => Promise<void>;
   disabled: boolean;
 }) {
   return <>
@@ -817,6 +888,14 @@ function ModuleView({
       onConfirm={onConfirm}
       onRecommend={onRecommend}
       disabled={disabled}
+    />}
+    {!spec && selected && <ArtifactConfirmationPanel
+      key={selected.id}
+      artifact={selected}
+      moduleName={title}
+      currentSpecVersion={projectSpecVersion}
+      disabled={disabled}
+      onConfirm={onConfirmArtifact}
     />}
     <div className="artifact-layout">
       <section className="card file-list">
@@ -841,6 +920,86 @@ function ModuleView({
       </section>
     </div>
   </>;
+}
+
+function ArtifactConfirmationPanel({
+  artifact, moduleName, currentSpecVersion, disabled, onConfirm,
+}: {
+  artifact: Artifact;
+  moduleName: string;
+  currentSpecVersion: number;
+  disabled: boolean;
+  onConfirm: (artifactId: string, note: string) => Promise<void>;
+}) {
+  const [note, setNote] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const confirmed = artifact.status === "USER_CONFIRMED";
+  const stale = artifact.source_spec_version !== currentSpecVersion;
+
+  if (confirmed) {
+    return <section className="card artifact-confirmation confirmed">
+      <Check size={18} />
+      <div>
+        <strong>该工程文件已由用户确认</strong>
+        <p>{artifact.path} · 来源 ProjectSpec v{artifact.source_spec_version}。后续需求变更会自动将其重新标记为待确认。</p>
+      </div>
+      <Badge tone="done">用户已确认</Badge>
+    </section>;
+  }
+
+  return <section className={`card artifact-confirmation ${stale ? "stale" : ""}`}>
+    <div className="artifact-confirmation-head">
+      <div>
+        <span><ClipboardCheck size={17} /></span>
+        <div>
+          <strong>{stale ? "文件版本已过期，暂时不能确认" : `确认${moduleName}文件`}</strong>
+          <p>
+            {artifact.path} · 来源 ProjectSpec v{artifact.source_spec_version}
+            {stale ? `，当前为 v${currentSpecVersion}，请先重新生成。` : "。请人工阅读文件后记录确认依据。"}
+          </p>
+        </div>
+      </div>
+      <Badge tone={stale ? "danger" : "waiting"}>{stale ? "需要重新生成" : statusText[artifact.status] ?? "等待确认"}</Badge>
+    </div>
+    {!stale && <>
+      <label className="artifact-confirmation-note">
+        <span>确认说明</span>
+        <textarea
+          aria-label={`确认说明：${artifact.path}`}
+          placeholder="例如：已对照 ProjectSpec 核对模块边界、输入输出和未验证项，未发现与当前需求冲突。"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+        />
+      </label>
+      <label className="artifact-confirmation-check">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(event) => setAcknowledged(event.target.checked)}
+        />
+        <span>我已人工核对该文件，并理解此确认不代表代码编译、具体器件参数、接线或实物测试已经通过。</span>
+      </label>
+      <button
+        type="button"
+        className="button primary compact"
+        disabled={disabled || submitting || !acknowledged || note.trim().length < 2}
+        onClick={() => {
+          setSubmitting(true);
+          void onConfirm(artifact.id, note.trim())
+            .then(() => {
+              setNote("");
+              setAcknowledged(false);
+            })
+            .catch(() => undefined)
+            .finally(() => setSubmitting(false));
+        }}
+      >
+        {submitting ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
+        {submitting ? "正在记录确认…" : "确认该文件"}
+      </button>
+    </>}
+  </section>;
 }
 
 function SpecSummary({
@@ -1156,6 +1315,61 @@ function Risk({ icon, title, text }: { icon: ReactNode; title: string; text: str
 }
 function Field({ label, placeholder, area = false, value, onChange }: { label: string; placeholder: string; area?: boolean; value: string; onChange: (value: string) => void }) {
   return <label className="field"><span>{label}</span>{area ? <textarea placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} /> : <input placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />}</label>;
+}
+
+function DeleteProjectModal({
+  project, disabled, close, onDelete,
+}: {
+  project: ProjectSummary;
+  disabled: boolean;
+  close: () => void;
+  onDelete: () => Promise<void>;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const matches = confirmation.trim() === project.name;
+
+  return <div className="backdrop" role="presentation">
+    <section className="modal-box delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
+      <header>
+        <div><span className="kicker">危险操作</span><h2 id="delete-project-title">删除“{project.name}”</h2></div>
+        <button className="icon" aria-label="关闭删除项目" disabled={deleting} onClick={close}><X size={20} /></button>
+      </header>
+      <div className="delete-warning">
+        <span><Trash2 size={20} /></span>
+        <div>
+          <strong>项目及全部工程记录将被永久删除</strong>
+          <p>包括所有 ProjectSpec 版本、Agent 对话与运行记录、工程文件、验证记录。此操作无法撤销，也不会删除你已经下载的 ZIP 文件。</p>
+        </div>
+      </div>
+      <label className="field delete-confirm-field">
+        <span>请输入项目名称 <strong>{project.name}</strong> 以确认</span>
+        <input
+          autoFocus
+          aria-label="输入项目名称确认删除"
+          value={confirmation}
+          onChange={(event) => setConfirmation(event.target.value)}
+          placeholder={project.name}
+        />
+      </label>
+      <footer>
+        <button className="button secondary" disabled={deleting} onClick={close}>取消</button>
+        <button
+          className="button danger"
+          disabled={disabled || deleting || !matches}
+          onClick={() => {
+            setDeleting(true);
+            void onDelete()
+              .catch(() => undefined)
+              .finally(() => setDeleting(false));
+          }}
+        >
+          {deleting ? <LoaderCircle size={15} className="spin" /> : <Trash2 size={15} />}
+          {deleting ? "正在删除…" : "永久删除项目"}
+        </button>
+      </footer>
+    </section>
+  </div>;
 }
 
 function CreateModal({ close, onCreate }: { close: () => void; onCreate: (data: ProjectForm) => Promise<void> }) {
