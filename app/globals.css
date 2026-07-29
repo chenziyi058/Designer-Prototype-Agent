@@ -2619,6 +2619,7 @@ textarea:focus-visible,
 }
 
 .agent-orb {
+  --orb-tempo: 1;
   position: relative;
   display: inline-grid !important;
   flex: 0 0 auto;
@@ -2633,7 +2634,8 @@ textarea:focus-visible,
     0 0 20px rgba(102, 151, 178, 0.24),
     inset 0 1px 5px rgba(255, 255, 255, 0.68) !important;
   isolation: isolate;
-  animation: orb-breathe 3.2s ease-in-out infinite;
+  will-change: transform, filter, box-shadow;
+  animation: orb-breathe calc(6.4s * var(--orb-tempo)) cubic-bezier(0.37, 0, 0.18, 1) infinite;
 }
 
 .agent-orb::before,
@@ -2649,7 +2651,9 @@ textarea:focus-visible,
   z-index: -1;
   background: conic-gradient(from 0deg, transparent 0 18%, rgba(102, 153, 181, 0.66) 34%, transparent 52% 70%, rgba(181, 211, 225, 0.55) 87%, transparent);
   filter: blur(1px);
-  animation: orb-rotate 4.8s linear infinite;
+  transform-origin: 48% 53%;
+  will-change: transform, opacity, filter;
+  animation: orb-aura-drift calc(8.7s * var(--orb-tempo)) cubic-bezier(0.45, 0.04, 0.2, 1) infinite;
 }
 
 .agent-orb::after {
@@ -2657,7 +2661,8 @@ textarea:focus-visible,
   z-index: -2;
   border: 1px solid rgba(95, 142, 168, 0.16);
   opacity: 0.7;
-  animation: orb-wave 3.2s ease-out infinite;
+  will-change: transform, opacity, border-color;
+  animation: orb-signal calc(5.3s * var(--orb-tempo)) cubic-bezier(0.22, 0.61, 0.32, 1) infinite;
 }
 
 .agent-orb i {
@@ -2667,6 +2672,8 @@ textarea:focus-visible,
   background: rgba(248, 253, 255, 0.9);
   filter: blur(1px);
   box-shadow: 0 0 9px rgba(237, 249, 255, 0.9);
+  will-change: transform, opacity, filter;
+  animation: orb-core-wander calc(4.9s * var(--orb-tempo)) cubic-bezier(0.33, 0, 0.2, 1) infinite;
 }
 
 .agent-orb b {
@@ -2677,6 +2684,8 @@ textarea:focus-visible,
   background: rgba(214, 239, 250, 0.3);
   filter: blur(4px);
   transform: rotate(-18deg);
+  will-change: transform, opacity;
+  animation: orb-energy-sweep calc(7.6s * var(--orb-tempo)) cubic-bezier(0.4, 0, 0.16, 1) infinite;
 }
 
 .agent-orb.small {
@@ -2695,11 +2704,15 @@ textarea:focus-visible,
 }
 
 .agent-orb.active {
-  animation-duration: 1.25s;
+  --orb-tempo: 0.58;
+  box-shadow:
+    0 0 0 1px rgba(69, 98, 116, 0.18),
+    0 0 28px rgba(92, 149, 180, 0.34),
+    inset 0 1px 6px rgba(255, 255, 255, 0.78) !important;
 }
 
 .agent-orb.active::before {
-  animation-duration: 1.05s;
+  filter: blur(0.6px) saturate(1.18);
 }
 
 .message > .agent-orb,
@@ -2710,18 +2723,164 @@ textarea:focus-visible,
     radial-gradient(circle at 38% 34%, rgba(255, 255, 255, 0.98) 0 6%, rgba(199, 226, 238, 0.95) 19%, rgba(91, 126, 148, 0.98) 51%, #233944 73%);
 }
 
-@keyframes orb-rotate {
-  to { transform: rotate(360deg); }
-}
-
 @keyframes orb-breathe {
-  0%, 100% { transform: scale(0.96); filter: saturate(0.92); }
-  50% { transform: scale(1.04); filter: saturate(1.12); }
+  0%, 100% {
+    transform: scale(0.96) translate3d(0, 0, 0);
+    filter: saturate(0.92) brightness(0.98);
+  }
+  14% {
+    transform: scale(1.035) translate3d(0.6px, -0.8px, 0);
+    filter: saturate(1.13) brightness(1.03);
+  }
+  24% {
+    transform: scale(1.012) translate3d(-0.3px, -0.2px, 0);
+    filter: saturate(1.02) brightness(1);
+  }
+  47% {
+    transform: scale(0.975) translate3d(-0.7px, 0.7px, 0);
+    filter: saturate(0.96) brightness(0.99);
+  }
+  61% {
+    transform: scale(1.055) translate3d(0.8px, 0.25px, 0);
+    filter: saturate(1.18) brightness(1.045);
+  }
+  68% {
+    transform: scale(1.02) translate3d(0.2px, -0.25px, 0);
+    filter: saturate(1.07) brightness(1.01);
+  }
+  86% {
+    transform: scale(0.985) translate3d(-0.35px, 0.4px, 0);
+    filter: saturate(0.98) brightness(0.99);
+  }
 }
 
-@keyframes orb-wave {
-  0% { opacity: 0.72; transform: scale(0.72); }
-  72%, 100% { opacity: 0; transform: scale(1.45); }
+@keyframes orb-aura-drift {
+  0% {
+    opacity: 0.7;
+    transform: rotate(0deg) scale(0.95) translate3d(0, 0, 0);
+  }
+  12% {
+    opacity: 0.92;
+    transform: rotate(42deg) scale(1.08) translate3d(1px, -0.5px, 0);
+  }
+  29% {
+    opacity: 0.58;
+    transform: rotate(97deg) scale(0.99) translate3d(-0.5px, -1px, 0);
+  }
+  43% {
+    opacity: 0.8;
+    transform: rotate(171deg) scale(1.04) translate3d(-1px, 0.5px, 0);
+  }
+  51% {
+    opacity: 0.66;
+    transform: rotate(196deg) scale(0.97) translate3d(0.4px, 0.8px, 0);
+  }
+  73% {
+    opacity: 0.94;
+    transform: rotate(304deg) scale(1.1) translate3d(0.8px, -0.6px, 0);
+  }
+  82% {
+    opacity: 0.62;
+    transform: rotate(287deg) scale(1.01) translate3d(-0.7px, 0.2px, 0);
+  }
+  100% {
+    opacity: 0.7;
+    transform: rotate(360deg) scale(0.95) translate3d(0, 0, 0);
+  }
+}
+
+@keyframes orb-signal {
+  0%, 8% {
+    opacity: 0;
+    transform: scale(0.76);
+    border-color: rgba(95, 142, 168, 0.1);
+  }
+  18% {
+    opacity: 0.74;
+    transform: scale(0.9);
+    border-color: rgba(111, 167, 195, 0.23);
+  }
+  39% {
+    opacity: 0;
+    transform: scale(1.42);
+    border-color: rgba(95, 142, 168, 0.08);
+  }
+  54%, 62% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  69% {
+    opacity: 0.52;
+    transform: scale(0.94);
+  }
+  78% {
+    opacity: 0.16;
+    transform: scale(1.18);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.54);
+  }
+}
+
+@keyframes orb-core-wander {
+  0%, 100% {
+    opacity: 0.88;
+    transform: translate3d(-12%, -10%, 0) scale(0.9);
+    filter: blur(1px);
+  }
+  17% {
+    opacity: 1;
+    transform: translate3d(10%, -16%, 0) scale(1.16);
+    filter: blur(0.7px);
+  }
+  38% {
+    opacity: 0.72;
+    transform: translate3d(17%, 8%, 0) scale(0.82);
+    filter: blur(1.5px);
+  }
+  57% {
+    opacity: 0.96;
+    transform: translate3d(-3%, 17%, 0) scale(1.08);
+    filter: blur(0.8px);
+  }
+  72% {
+    opacity: 0.8;
+    transform: translate3d(-18%, 3%, 0) scale(0.94);
+    filter: blur(1.25px);
+  }
+  84% {
+    opacity: 1;
+    transform: translate3d(4%, -6%, 0) scale(1.2);
+    filter: blur(0.65px);
+  }
+}
+
+@keyframes orb-energy-sweep {
+  0%, 100% {
+    opacity: 0.32;
+    transform: rotate(-18deg) translate3d(-6%, 5%, 0) scaleX(0.86);
+  }
+  21% {
+    opacity: 0.58;
+    transform: rotate(11deg) translate3d(8%, -13%, 0) scaleX(1.13);
+  }
+  34% {
+    opacity: 0.22;
+    transform: rotate(4deg) translate3d(13%, 2%, 0) scaleX(0.76);
+  }
+  56% {
+    opacity: 0.5;
+    transform: rotate(-31deg) translate3d(-4%, 14%, 0) scaleX(1.05);
+  }
+  79% {
+    opacity: 0.18;
+    transform: rotate(-8deg) translate3d(-14%, -7%, 0) scaleX(0.72);
+  }
+  88% {
+    opacity: 0.46;
+    transform: rotate(17deg) translate3d(2%, -11%, 0) scaleX(1.09);
+  }
 }
 
 .conversation-stage-copy {
