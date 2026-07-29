@@ -1451,11 +1451,17 @@ function Overview({
   const questionEntries = spec.open_questions
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.verification_status !== "USER_CONFIRMED");
+  const staleArtifact = artifacts.find((item) =>
+    ["GENERATED", "NEEDS_CONFIRMATION"].includes(item.status)
+    && item.source_spec_version !== project.current_spec_version,
+  );
   const pendingArtifact = artifacts.find((item) =>
-    ["GENERATED", "NEEDS_CONFIRMATION"].includes(item.status),
+    ["GENERATED", "NEEDS_CONFIRMATION"].includes(item.status)
+    && item.source_spec_version === project.current_spec_version,
   );
   const nextGeneration = workflowStages.find((stage) =>
-    !["项目概览", "需求", "验证记录"].includes(stage.label) && stage.detail === "待生成",
+    !["项目概览", "需求", "验证记录"].includes(stage.label)
+    && (stage.detail === "待生成" || stage.detail === "需按新版本重生成"),
   );
   const currentStep = questionEntries.length
     ? {
@@ -1464,7 +1470,14 @@ function Overview({
         objective: "先消除会影响选型、预算或实现方式的关键信息缺口。",
         next: `回答：${questionEntries[0].item.value}`,
       }
-    : pendingArtifact
+    : staleArtifact
+      ? {
+          index: 2,
+          title: `按 ProjectSpec v${project.current_spec_version} 重新生成`,
+          objective: "需求版本已经变化，旧工程文件不能继续确认；先重新生成受影响模块。",
+          next: `重新生成：${nextGeneration?.label ?? staleArtifact.path}`,
+        }
+      : pendingArtifact
       ? {
           index: 3,
           title: "审阅并确认工程文件",
@@ -1525,9 +1538,10 @@ function Overview({
           <ConversationCheckpoint
             key={questionEntries[0]
               ? `question-${questionEntries[0].index}`
-              : pendingArtifact ? `artifact-${pendingArtifact.id}` : "complete"}
+              : staleArtifact ? `artifact-${staleArtifact.id}`
+                : pendingArtifact ? `artifact-${pendingArtifact.id}` : "complete"}
             question={questionEntries[0]}
-            artifact={pendingArtifact}
+            artifact={staleArtifact ?? pendingArtifact}
             currentSpecVersion={project.current_spec_version}
             busy={busy}
             onConfirmRequirement={onConfirmRequirement}
