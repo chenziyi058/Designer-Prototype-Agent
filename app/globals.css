@@ -33,10 +33,10 @@
   --shadow-panel: 0 14px 34px rgba(76, 94, 105, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.74);
   --shadow-float: 0 18px 48px rgba(65, 80, 90, 0.16);
   --ease: 220ms ease-out;
-  --motion-fast: 150ms;
-  --motion-panel: 190ms;
-  --motion-ease: cubic-bezier(0.2, 0.78, 0.24, 1);
-  --motion-exit: cubic-bezier(0.4, 0, 0.6, 1);
+  --motion-fast: 210ms;
+  --motion-panel: 290ms;
+  --motion-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --motion-exit: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
@@ -454,7 +454,10 @@ textarea:focus-visible,
 }
 
 .content-view {
-  animation: content-view-in 180ms var(--motion-ease) both;
+  animation: content-view-in 240ms var(--motion-ease) both;
+  backface-visibility: hidden;
+  contain: paint;
+  transform: translateZ(0);
   will-change: opacity, transform;
 }
 
@@ -1365,15 +1368,18 @@ textarea:focus-visible,
   border-left: 1px solid var(--line);
   background: rgba(246, 249, 250, 0.68);
   backdrop-filter: blur(18px);
+  backface-visibility: hidden;
+  contain: paint;
   overflow: hidden;
   animation: agent-panel-in var(--motion-panel) var(--motion-ease) both;
+  transform: translateZ(0);
   transform-origin: right center;
   will-change: opacity, transform;
 }
 
 .agent.is-closing {
   pointer-events: none;
-  animation: agent-panel-out 170ms var(--motion-exit) both;
+  animation: agent-panel-out 240ms var(--motion-exit) both;
 }
 
 @keyframes agent-panel-in {
@@ -1606,7 +1612,9 @@ textarea:focus-visible,
   font-size: 11px;
   transform: translateX(-50%);
   backdrop-filter: blur(16px);
-  animation: floating-notice-in 170ms var(--motion-ease) both;
+  animation: floating-notice-in 230ms var(--motion-ease) both;
+  backface-visibility: hidden;
+  will-change: opacity, transform;
 }
 
 @keyframes floating-notice-in {
@@ -1709,6 +1717,9 @@ textarea:focus-visible,
   background: rgba(247, 250, 251, 0.94);
   box-shadow: var(--shadow-float);
   backdrop-filter: blur(18px);
+  backface-visibility: hidden;
+  contain: paint;
+  transform: translateZ(0);
   transform-origin: top center;
   animation: dropdown-menu-in var(--motion-fast) var(--motion-ease) both;
   will-change: opacity, transform;
@@ -1716,7 +1727,7 @@ textarea:focus-visible,
 
 .dropdown-menu.is-closing {
   pointer-events: none;
-  animation: dropdown-menu-out 130ms var(--motion-exit) both;
+  animation: dropdown-menu-out 180ms var(--motion-exit) both;
 }
 
 @keyframes dropdown-menu-in {
@@ -2166,12 +2177,15 @@ textarea:focus-visible,
   padding: 0 0 14px 27px;
   transform-origin: top center;
   animation: disclosure-body-in var(--motion-fast) var(--motion-ease) both;
+  backface-visibility: hidden;
+  contain: paint;
+  transform: translateZ(0);
   will-change: opacity, transform;
 }
 
 .disclosure-body.is-closing {
   pointer-events: none;
-  animation: disclosure-body-out 130ms var(--motion-exit) both;
+  animation: disclosure-body-out 180ms var(--motion-exit) both;
 }
 
 @keyframes disclosure-body-in {
@@ -2573,13 +2587,15 @@ textarea:focus-visible,
   padding: 20px;
   background: rgba(35, 48, 57, 0.34);
   backdrop-filter: blur(8px);
+  backface-visibility: hidden;
+  contain: paint;
   animation: backdrop-in var(--motion-panel) var(--motion-ease) both;
   will-change: opacity;
 }
 
 .backdrop.is-closing {
   pointer-events: none;
-  animation: backdrop-out 170ms var(--motion-exit) both;
+  animation: backdrop-out 230ms var(--motion-exit) both;
 }
 
 .modal-box {
@@ -2591,13 +2607,16 @@ textarea:focus-visible,
   background: rgba(246, 249, 250, 0.94);
   box-shadow: 0 28px 80px rgba(38, 52, 62, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(24px);
+  backface-visibility: hidden;
+  contain: paint;
+  transform: translateZ(0);
   transform-origin: center center;
-  animation: modal-box-in 210ms var(--motion-ease) both;
+  animation: modal-box-in 300ms var(--motion-ease) both;
   will-change: opacity, transform;
 }
 
 .backdrop.is-closing .modal-box {
-  animation: modal-box-out 170ms var(--motion-exit) both;
+  animation: modal-box-out 230ms var(--motion-exit) both;
 }
 
 @keyframes backdrop-in {
@@ -2634,7 +2653,9 @@ textarea:focus-visible,
 
 .modal-stage-content,
 .modal-step-content {
-  animation: modal-stage-in 170ms var(--motion-ease) both;
+  animation: modal-stage-in 230ms var(--motion-ease) both;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 @keyframes modal-stage-in {
@@ -4554,12 +4575,15 @@ textarea:focus-visible,
     border: 0;
     background: rgba(38, 52, 61, 0.26);
     backdrop-filter: blur(5px);
-    animation: mobile-scrim-in 180ms var(--motion-ease) both;
+    animation: mobile-scrim-in 260ms var(--motion-ease) both;
+    backface-visibility: hidden;
+    contain: paint;
+    will-change: opacity;
   }
 
   .mobile-nav-scrim.is-closing {
     pointer-events: none;
-    animation: mobile-scrim-out 150ms var(--motion-exit) both;
+    animation: mobile-scrim-out 210ms var(--motion-exit) both;
   }
 
   .workspace,
@@ -4580,7 +4604,10 @@ textarea:focus-visible,
     background: rgba(239, 244, 246, 0.96);
     box-shadow: 22px 0 52px rgba(42, 57, 66, 0.18);
     transform: translateX(-105%);
-    transition: transform 190ms var(--motion-ease);
+    transition: transform 280ms var(--motion-ease);
+    backface-visibility: hidden;
+    contain: paint;
+    will-change: transform;
   }
 
   .sidebar.open {

@@ -409,7 +409,7 @@ function useDialogFocus<T extends HTMLElement>(onClose: () => void) {
   return dialogRef;
 }
 
-function useAnimatedPresence(visible: boolean, exitMs = 190) {
+function useAnimatedPresence(visible: boolean, exitMs = 250) {
   const [mounted, setMounted] = useState(visible);
 
   if (visible && !mounted) {
@@ -441,7 +441,7 @@ function Dropdown({
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value);
-  const menuPresence = useAnimatedPresence(open, 150);
+  const menuPresence = useAnimatedPresence(open, 190);
 
   useEffect(() => {
     if (!open) return;
@@ -518,10 +518,10 @@ export default function HomePage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-  const agentPresence = useAnimatedPresence(agentOpen, 190);
-  const mobileNavPresence = useAnimatedPresence(mobileNav, 180);
-  const createPresence = useAnimatedPresence(createOpen, 190);
-  const deletePresence = useAnimatedPresence(deleteOpen, 190);
+  const agentPresence = useAnimatedPresence(agentOpen, 260);
+  const mobileNavPresence = useAnimatedPresence(mobileNav, 230);
+  const createPresence = useAnimatedPresence(createOpen, 250);
+  const deletePresence = useAnimatedPresence(deleteOpen, 250);
   const [preview, setPreview] = useState("");
   const [introPhase, setIntroPhase] = useState<IntroPhase>("cover");
   const introLogoRef = useRef<HTMLDivElement>(null);
@@ -1934,7 +1934,7 @@ function Disclosure({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const bodyPresence = useAnimatedPresence(open, 150);
+  const bodyPresence = useAnimatedPresence(open, 190);
   return <div className={`disclosure ${open ? "open" : ""}`}>
     <button type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
       <ChevronDown size={15} aria-hidden="true" />

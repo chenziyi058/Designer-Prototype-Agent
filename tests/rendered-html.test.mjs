@@ -89,7 +89,11 @@ test("panels, dialogs, menus and content switches use short two-way motion", asy
   assert.match(page, /menuPresence\.closing/);
   assert.match(page, /bodyPresence\.closing/);
   assert.match(page, /className="content-view"/);
-  assert.match(css, /--motion-panel: 190ms/);
+  assert.match(css, /--motion-fast: 210ms/);
+  assert.match(css, /--motion-panel: 290ms/);
+  assert.match(css, /cubic-bezier\(0\.22, 0\.61, 0\.36, 1\)/);
+  assert.match(css, /backface-visibility: hidden/);
+  assert.match(css, /transform: translateZ\(0\)/);
   assert.match(css, /@keyframes agent-panel-in/);
   assert.match(css, /@keyframes agent-panel-out/);
   assert.match(css, /@keyframes modal-box-in/);
