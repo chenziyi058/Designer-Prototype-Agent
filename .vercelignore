@@ -1,0 +1,46 @@
+# Version control and local hosting state
+.git/
+.github/
+.openai/
+.vercel/
+
+# Dependencies, toolchains and caches
+node_modules/
+.pnpm-store/
+.platformio/
+.venv/
+.cache/
+**/__pycache__/
+**/.pio/
+
+# Local and generated build outputs
+.next/
+.vinext/
+.output/
+.nitro/
+dist/
+.wrangler/
+coverage/
+*.tsbuildinfo
+
+# Secrets and local data
+.env
+.env.*
+!.env.example
+**/data/
+**/projects/
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# Local-only execution and project examples are not part of the hosted runtime
+apps/api/
+examples/
+
+# Development-only material
+docs/
+tests/
+*.log
+.DS_Store
