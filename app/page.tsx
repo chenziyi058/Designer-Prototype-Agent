@@ -4,13 +4,14 @@ import {
   AlertTriangle, ArrowRight, Bot, Check, ChevronDown, ChevronRight,
   Clipboard, ClipboardCheck, Code2, Cpu, Download, FileCode2, FileText,
   FolderOpen, GitBranch, Home, Layers3, LoaderCircle, Menu, PackageSearch,
-  Lightbulb, Plus, Send, Settings2, ShieldCheck, Sparkles, TestTube2,
-  Trash2, Unplug, X,
+  Languages, Lightbulb, Plus, Quote, RotateCcw, Send, Settings2, ShieldCheck,
+  Sparkles, TestTube2, Trash2, Unplug, X,
 } from "lucide-react";
 import { FormEvent, ReactNode, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Tone = "done" | "active" | "waiting" | "neutral" | "danger";
 type IntroPhase = "cover" | "leaving" | "done";
+type Locale = "zh" | "en";
 type Traced<T> = {
   value: T;
   source: string;
@@ -109,6 +110,7 @@ type SpecVersion = {
   created_at: string;
 };
 type ChatMessage = {
+  id?: string;
   role: "user" | "agent";
   text: string;
   affected?: string[];
@@ -123,6 +125,14 @@ type ChatMessage = {
   nextQuestion?: string;
   proposalMessage?: string;
   proposalPending?: boolean;
+  specDiff?: SpecDiffPreview;
+};
+type SpecDiffEntry = { field: string; label: string; before: string; after: string };
+type SpecDiffPreview = {
+  additions: SpecDiffEntry[];
+  modifications: SpecDiffEntry[];
+  unchanged: Array<{ label: string; value: string }>;
+  invalidated_artifacts: string[];
 };
 type ConversationSuggestion = {
   label: string;
@@ -232,6 +242,53 @@ const nav = [
   ["Python 程序", FileCode2], ["控制界面", Settings2], ["测试", TestTube2],
   ["文档", FileText], ["验证记录", ClipboardCheck],
 ] as const;
+const navEnglish: Record<string, string> = {
+  项目概览: "Overview", 需求: "Requirements", 系统架构: "Architecture", 硬件方案: "Hardware",
+  BOM: "BOM", 接线: "Wiring", 通信协议: "Protocol", 固件代码: "Firmware",
+  "Python 程序": "Python", 控制界面: "Control UI", 测试: "Tests", 文档: "Docs",
+  验证记录: "Validation",
+};
+const emptyProjectExamples = [
+  {
+    label: "智能穿戴",
+    value: "我想做一款面向久坐办公人群的轻量智能穿戴设备，用温和反馈提醒调整姿态，但我还不确定该感知哪些信号。",
+    valueEn: "I want to create a lightweight wearable for desk workers that gently encourages posture changes, but I am not yet sure which signals it should sense.",
+  },
+  {
+    label: "桌面装置",
+    value: "我想做一个帮助设计师保持专注的桌面装置，能感知工作节奏并通过灯光和触觉反馈，我不知道具体元件型号。",
+    valueEn: "I want to build a desktop object that helps designers stay focused by sensing work rhythm and responding through light and haptics; I do not know the component models yet.",
+  },
+  {
+    label: "交互机器人",
+    value: "我想做一个用于展览导览的桌面交互机器人，可以感知观众靠近、做简单动作并用声音回应，先验证核心交互。",
+    valueEn: "I want to prototype a small exhibition guide robot that senses approaching visitors, performs simple movements, and responds with sound, focusing first on the core interaction.",
+  },
+  {
+    label: "环境感知设备",
+    value: "我想做一个室内环境感知设备，持续观察舒适度变化并给出直观提醒，第一版需要低压、可移动且容易搭建。",
+    valueEn: "I want an indoor environment-sensing device that tracks comfort changes and gives intuitive feedback; the first prototype should be low-voltage, portable, and easy to assemble.",
+  },
+];
+function localizedWorkflowDetail(detail: string, locale: Locale) {
+  if (locale === "zh") return detail;
+  const exact: Record<string, string> = {
+    对话推进中: "Conversation in progress",
+    等待下一指令: "Ready for the next instruction",
+    尚未创建: "Not created",
+    尚未运行: "Not run",
+    待生成: "Ready to generate",
+    需按新版本重生成: "Regenerate for the current version",
+    等待下一阶段: "Ready for the next stage",
+  };
+  if (exact[detail]) return exact[detail];
+  return detail
+    .replace(/(\d+) 项待确认/, "$1 open items")
+    .replace(/(\d+) 个文件待确认/, "$1 files to review")
+    .replace(/(\d+) 个文件/, "$1 files")
+    .replace(/(\d+) 项失败/, "$1 failed checks")
+    .replace(/(\d+) 项已运行/, "$1 checks completed");
+}
 const moduleConfig: Record<string, { module?: string; prefixes: string[]; description: string }> = {
   需求: { prefixes: ["01_requirements/"], description: "ProjectSpec 是所有工程资产的唯一需求事实来源。" },
   系统架构: { module: "architecture", prefixes: ["02_architecture/"], description: "输入、处理、输出、数据流、控制流与状态机。" },
@@ -500,9 +557,12 @@ function Dropdown({
 
 export default function HomePage() {
   const [active, setActive] = useState("项目概览");
+  const [locale, setLocale] = useState<Locale>("zh");
   const [agentOpen, setAgentOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createSeed, setCreateSeed] = useState("");
+  const [createAutoPlan, setCreateAutoPlan] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [project, setProject] = useState<ProjectSummary | null>(null);
@@ -513,6 +573,7 @@ export default function HomePage() {
   const [versions, setVersions] = useState<SpecVersion[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [provider, setProvider] = useState("正在检查模型…");
+  const [initialLoading, setInitialLoading] = useState(true);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
@@ -526,6 +587,7 @@ export default function HomePage() {
   const [introPhase, setIntroPhase] = useState<IntroPhase>("cover");
   const introLogoRef = useRef<HTMLDivElement>(null);
   const introTimerRef = useRef<number | null>(null);
+  const preloadStartedRef = useRef(false);
 
   const loadProject = useCallback(async (projectId: string) => {
     setBusy("正在加载项目");
@@ -537,6 +599,7 @@ export default function HomePage() {
           request<ProjectSpec>(`/api/projects/${projectId}/spec`),
           request<Artifact[]>(`/api/projects/${projectId}/artifacts`),
           request<Array<{
+            id: string;
             role: string;
             content: string;
             metadata?: {
@@ -549,6 +612,7 @@ export default function HomePage() {
                 next_question?: string;
                 proposal_message?: string;
                 proposal_pending?: boolean;
+                spec_diff?: SpecDiffPreview;
               };
             };
           }>>(`/api/projects/${projectId}/messages`),
@@ -563,6 +627,7 @@ export default function HomePage() {
       setValidations(validationData);
       setVersions(versionData);
       setMessages(messageData.map((item) => ({
+        id: item.id,
         role: item.role === "user" ? "user" : "agent",
         text: item.content,
         affected: item.metadata?.affected_modules,
@@ -573,6 +638,7 @@ export default function HomePage() {
         nextQuestion: item.metadata?.conversation?.next_question,
         proposalMessage: item.metadata?.conversation?.proposal_message,
         proposalPending: item.metadata?.conversation?.proposal_pending,
+        specDiff: item.metadata?.conversation?.spec_diff,
       })));
       localStorage.setItem("dpa-current-project", projectId);
     } catch (reason) {
@@ -605,12 +671,18 @@ export default function HomePage() {
       if (target) await loadProject(target.id);
     } catch (reason) {
       setError(`${reason instanceof Error ? reason.message : "无法连接工程 API"}。请刷新页面后重试。`);
+    } finally {
+      setInitialLoading(false);
     }
   }, [loadProject]);
 
   useEffect(() => {
-    if (introPhase === "done") void loadProjects();
-  }, [introPhase, loadProjects]);
+    if (preloadStartedRef.current) return;
+    preloadStartedRef.current = true;
+    const savedLocale = localStorage.getItem("dpa-locale");
+    if (savedLocale === "en" || savedLocale === "zh") setLocale(savedLocale);
+    void loadProjects();
+  }, [loadProjects]);
 
   useEffect(() => () => {
     if (introTimerRef.current !== null) window.clearTimeout(introTimerRef.current);
@@ -697,7 +769,15 @@ export default function HomePage() {
     await loadProject(result.id);
     setMessages([{ role: "agent", text: result.agent.summary }]);
     setCreateOpen(false);
+    setCreateSeed("");
+    setCreateAutoPlan(false);
     setActive("项目概览");
+  }
+
+  function openProjectPlanning(seed = "", autoPlan = false) {
+    setCreateSeed(seed);
+    setCreateAutoPlan(autoPlan);
+    setCreateOpen(true);
   }
 
   async function planNewProject(description: string) {
@@ -743,7 +823,7 @@ export default function HomePage() {
   async function sendContent(content: string, applyChange = false) {
     if (!content.trim() || busy) return;
     if (!project) {
-      setCreateOpen(true);
+      openProjectPlanning(content.trim(), true);
       return;
     }
     const normalizedContent = content.trim();
@@ -758,6 +838,7 @@ export default function HomePage() {
         model: string;
         spec_updated: boolean;
         spec_version: number;
+        message_id: string;
         conversation?: {
           intent?: ChatMessage["intent"];
           ambiguous?: boolean;
@@ -766,6 +847,7 @@ export default function HomePage() {
           next_question?: string;
           proposal_message?: string;
           proposal_pending?: boolean;
+          spec_diff?: SpecDiffPreview;
         };
       }>(`/api/projects/${project.id}/messages`, {
         method: "POST",
@@ -779,6 +861,7 @@ export default function HomePage() {
             : "Mock 模式",
       );
       setMessages((items) => [...items, {
+        id: result.message_id,
         role: "agent",
         text: result.reply,
         affected: result.affected_modules,
@@ -789,6 +872,7 @@ export default function HomePage() {
         nextQuestion: result.conversation?.next_question,
         proposalMessage: result.conversation?.proposal_message,
         proposalPending: result.conversation?.proposal_pending,
+        specDiff: result.conversation?.spec_diff,
       }]);
       if (result.spec_updated) await refreshCurrent();
     } catch (reason) {
@@ -806,11 +890,52 @@ export default function HomePage() {
     await sendContent(message, false);
   }
 
-  async function executeConversationTool(tool: ConversationToolCall, sourceMessage?: string) {
+  async function confirmProposal(messageId: string) {
+    if (!project || busy) return;
+    setBusy("正在按差异预览创建新的 ProjectSpec 版本");
+    setError("");
+    try {
+      await request(`/api/projects/${project.id}/messages/${messageId}/confirm`, { method: "POST" });
+      await refreshCurrent();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "ProjectSpec 提案确认失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function undoLastChange() {
+    if (!project || busy) return;
+    const previous = versions
+      .filter((item) => item.version < project.current_spec_version)
+      .sort((a, b) => b.version - a.version)[0];
+    if (!previous) return;
+    setBusy(`正在恢复 ProjectSpec v${previous.version}`);
+    setError("");
+    try {
+      await request(`/api/projects/${project.id}/spec/versions/${previous.version}/restore`, {
+        method: "POST",
+      });
+      await refreshCurrent();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "撤回失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function executeConversationTool(
+    tool: ConversationToolCall,
+    sourceMessage?: string,
+    messageId?: string,
+  ) {
     if (busy) return;
     if (tool.action === "confirm_spec") {
-      if (!sourceMessage) return;
-      await sendContent(`确认执行上述计划：${sourceMessage}`, true);
+      if (messageId) {
+        await confirmProposal(messageId);
+      } else if (sourceMessage) {
+        await sendContent(`确认执行上述计划：${sourceMessage}`, true);
+      }
       return;
     }
     if (tool.action === "generate" && tool.target) {
@@ -934,6 +1059,24 @@ export default function HomePage() {
     if (project) window.location.assign(`${API_URL}/api/projects/${project.id}/export`);
   }
 
+  function askAboutSelection(quote: string, path: string) {
+    const normalized = quote.replace(/\s+/g, " ").trim().slice(0, 1600);
+    if (!normalized) return;
+    setMessage(
+      `关于工程文件 ${path} 中的以下内容，请解释其作用、依据、风险和需要确认的事项，不要修改 ProjectSpec：\n\n> ${normalized}`,
+    );
+    setActive("项目概览");
+    setAgentOpen(true);
+  }
+
+  function toggleLocale() {
+    setLocale((current) => {
+      const next = current === "zh" ? "en" : "zh";
+      localStorage.setItem("dpa-locale", next);
+      return next;
+    });
+  }
+
   const introVisible = introPhase !== "done";
 
   return (
@@ -943,15 +1086,16 @@ export default function HomePage() {
       <section className="app-shell">
         <header className="topbar">
           <div className="brand">
-            <div><strong>智能产品原型工程师</strong><small>Designer Prototype Agent</small></div>
+            <div><strong>{locale === "zh" ? "智能产品原型工程师" : "Intelligent Product Prototype Engineer"}</strong><small>Designer Prototype Agent</small></div>
           </div>
           <div className="actions">
             <div className={`model-state ${provider.startsWith("DeepSeek") ? "connected" : "neutral"}`}>
               <i aria-hidden="true" />
               <Badge tone={provider.startsWith("DeepSeek") ? "done" : "neutral"}>{provider}</Badge>
             </div>
+            <button className="button secondary compact language-toggle" onClick={toggleLocale} aria-label="切换中英文界面"><Languages size={15} />{locale === "zh" ? "EN" : "中文"}</button>
             <button className="button secondary compact agent-toggle" aria-label="打开或关闭 Agent" onClick={() => setAgentOpen(!agentOpen)}><Bot size={16} /> Agent</button>
-            <button className="button primary compact" onClick={() => setCreateOpen(true)}><Plus size={16} /> 新建项目</button>
+            {project && <button className="button primary compact" onClick={() => openProjectPlanning()}><Plus size={16} /> {locale === "zh" ? "新建项目" : "New project"}</button>}
             <button className="icon mobile" onClick={() => setMobileNav(!mobileNav)} aria-label="打开项目导航"><Menu size={20} /></button>
           </div>
         </header>
@@ -974,7 +1118,7 @@ export default function HomePage() {
                 value={project?.id ?? ""}
                 options={projects.length
                   ? projects.map((item) => ({ value: item.id, label: item.name }))
-                  : [{ value: "", label: "尚未创建项目" }]}
+                  : [{ value: "", label: locale === "zh" ? "尚未创建项目" : "No projects yet" }]}
                 disabled={projects.length === 0}
                 onChange={(value) => void loadProject(value)}
                 dangerAction={project ? {
@@ -985,9 +1129,10 @@ export default function HomePage() {
                   },
                 } : undefined}
               />
-              <small>{project ? `ProjectSpec v${project.current_spec_version}` : "请创建项目"}</small>
+              <small>{project ? `ProjectSpec v${project.current_spec_version}` : (locale === "zh" ? "请创建项目" : "Start from an idea")}</small>
             </div>
           </div>
+          {project ? <>
           <span className="nav-caption">Project workflow</span>
           <nav>{nav.map(([label, Icon]) => {
             const stage = workflowStages.find((item) => item.label === label);
@@ -998,20 +1143,29 @@ export default function HomePage() {
               onClick={() => { setActive(label); setMobileNav(false); }}
             >
               <Icon size={17} />
-              <span><strong>{label}</strong><small>{stage?.detail ?? "待开始"}</small></span>
+              <span><strong>{locale === "en" ? navEnglish[label] : label}</strong><small>{stage ? localizedWorkflowDetail(stage.detail, locale) : (locale === "zh" ? "待开始" : "Not started")}</small></span>
               <i className={`workflow-state ${stage?.tone ?? "neutral"}`} aria-hidden="true" />
             </button>
           );})}</nav>
+          </> : <div className="empty-workflow-note">
+            <Sparkles size={16} />
+            <strong>{locale === "zh" ? "先从一句想法开始" : "Start with one idea"}</strong>
+            <p>{locale === "zh" ? "创建项目后，完整 Workflow 会在这里展开。" : "The full workflow appears here after your project is created."}</p>
+          </div>}
           <div className="safety">
             <ShieldCheck size={18} />
-            <div><strong>原型安全边界</strong><p>首次上电前必须人工检查接线。Agent 不能替代专业电气安全评审。</p></div>
+            <div><strong>{locale === "zh" ? "原型安全边界" : "Prototype safety boundary"}</strong><p>{locale === "zh" ? "首次上电前必须人工检查接线。Agent 不能替代专业电气安全评审。" : "Manually inspect wiring before first power-on. The Agent does not replace professional electrical safety review."}</p></div>
           </div>
           </aside>
 
           <section className="content">
           <div className="content-view" key={`${project?.id ?? "empty"}:${active}`}>
           {!project || !spec ? (
-            <EmptyHome loading={Boolean(busy)} onCreate={() => setCreateOpen(true)} />
+            <EmptyHome
+              locale={locale}
+              loading={initialLoading}
+              onStart={(idea) => openProjectPlanning(idea, true)}
+            />
           ) : active === "项目概览" ? (
             <Overview
               project={project}
@@ -1023,14 +1177,17 @@ export default function HomePage() {
               workflowStages={workflowStages}
               onMessageChange={setMessage}
               onSend={send}
-              onSuggestion={(value) => void sendContent(`我选择：${value}`, false)}
-              onTool={(tool, sourceMessage) => void executeConversationTool(tool, sourceMessage)}
+              onSuggestion={(value) => void sendContent(`${locale === "zh" ? "我选择" : "I choose"}：${value}`, false)}
+              onTool={(tool, sourceMessage, messageId) => void executeConversationTool(tool, sourceMessage, messageId)}
               onConfirmRequirement={confirmRequirement}
               onRecommendRequirement={recommendRequirement}
               onConfirmArtifact={confirmArtifact}
               setActive={setActive}
               exportProject={exportProject}
               onDelete={() => setDeleteOpen(true)}
+              canUndo={versions.some((item) => item.version < project.current_spec_version)}
+              onUndo={() => void undoLastChange()}
+              locale={locale}
             />
           ) : active === "验证记录" ? (
             <ValidationView validations={validations} runs={runs} capabilities={capabilities} />
@@ -1047,6 +1204,7 @@ export default function HomePage() {
               spec={active === "需求" ? spec : undefined}
               versions={active === "需求" ? versions : undefined}
               onReturnToConversation={() => setActive("项目概览")}
+              onAskSelection={askAboutSelection}
             />
           )}
           </div>
@@ -1063,8 +1221,8 @@ export default function HomePage() {
               messages={messages}
               compact
               busy={Boolean(busy)}
-              onSuggestion={(value) => void sendContent(`我选择：${value}`, false)}
-              onTool={(tool, sourceMessage) => void executeConversationTool(tool, sourceMessage)}
+              onSuggestion={(value) => void sendContent(`${locale === "zh" ? "我选择" : "I choose"}：${value}`, false)}
+              onTool={(tool, sourceMessage, messageId) => void executeConversationTool(tool, sourceMessage, messageId)}
             />
             <ConversationComposer
               value={message}
@@ -1072,21 +1230,32 @@ export default function HomePage() {
               onChange={setMessage}
               onSubmit={send}
               compact
+              locale={locale}
             />
             </aside>
           )}
         </div>
         <footer className="workbench-footer">
           <span><i className={provider.startsWith("DeepSeek") ? "connected" : ""} />{provider}</span>
-          <span>ProjectSpec 驱动 · {capabilities?.local_executor_available ? "本地执行器可用" : "云端仅提供静态验证"}</span>
+          <span>{locale === "zh"
+            ? `ProjectSpec 驱动 · ${capabilities?.local_executor_available ? "本地执行器可用" : "云端仅提供静态验证"}`
+            : `ProjectSpec-driven · ${capabilities?.local_executor_available ? "Local executor available" : "Hosted static validation only"}`}</span>
         </footer>
       </section>
 
       {createPresence.mounted && <PlanningCreateModal
+        key={`${createSeed}:${createAutoPlan ? "auto" : "manual"}`}
         closing={createPresence.closing}
-        close={() => setCreateOpen(false)}
+        close={() => {
+          setCreateOpen(false);
+          setCreateSeed("");
+          setCreateAutoPlan(false);
+        }}
         onPlan={planNewProject}
         onCreate={createProject}
+        initialIdea={createSeed}
+        autoPlan={createAutoPlan}
+        locale={locale}
       />}
       {deletePresence.mounted && project && <DeleteProjectModal
         closing={deletePresence.closing}
@@ -1160,7 +1329,20 @@ function IntroCover({
   </section>;
 }
 
-function EmptyHome({ loading, onCreate }: { loading: boolean; onCreate: () => void }) {
+function EmptyHome({
+  locale,
+  loading,
+  onStart,
+}: {
+  locale: Locale;
+  loading: boolean;
+  onStart: (idea: string) => void;
+}) {
+  const [idea, setIdea] = useState("");
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!loading && idea.trim().length >= 10) onStart(idea.trim());
+  };
   return <div className="empty home-empty">
     {loading ? (
       <span><LoaderCircle className="spin" /></span>
@@ -1168,9 +1350,48 @@ function EmptyHome({ loading, onCreate }: { loading: boolean; onCreate: () => vo
       <div className="brand-symbol" role="img" aria-label="Designer Prototype Agent 标志" />
     )}
     <div className="kicker">Project workspace</div>
-    <h2>{loading ? "正在连接工程工作台" : "创建第一个智能产品原型"}</h2>
-    <p>用纯文字描述产品目标、交互、技术偏好与现实约束。DeepSeek 会先形成可追踪的 ProjectSpec，再生成工程资产。</p>
-    {!loading && <button className="button primary" onClick={onCreate}><Plus size={16} /> 新建项目</button>}
+    <h2>{loading
+      ? (locale === "zh" ? "正在准备工程工作台" : "Preparing your engineering workspace")
+      : (locale === "zh" ? "你想创造什么？" : "What would you like to create?")}</h2>
+    <p>{locale === "zh"
+      ? "直接描述一个模糊想法。Agent 会先理解目标、规划步骤并给出可选择的推测，确认后再创建 ProjectSpec。"
+      : "Describe even a rough idea. The Agent will interpret your goal, plan the workflow, and propose choices before creating a ProjectSpec."}</p>
+    <form className="empty-conversation-composer" onSubmit={submit}>
+      <textarea
+        autoFocus={!loading}
+        value={idea}
+        disabled={loading}
+        onChange={(event) => setIdea(event.target.value)}
+        placeholder={locale === "zh"
+          ? "例如：我想做一个能感知工作节奏、用柔和方式提醒我的桌面装置……"
+          : "For example: I want a desktop object that senses my work rhythm and responds gently…"}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+          }
+        }}
+      />
+      <div>
+        <small>{loading
+          ? (locale === "zh" ? "正在预加载健康状态和项目列表…" : "Preloading health and project data…")
+          : (locale === "zh" ? "Enter 发送 · 先规划，确认后执行" : "Enter to send · Plan first, execute after confirmation")}</small>
+        <button aria-label={locale === "zh" ? "发送产品想法" : "Send product idea"} disabled={loading || idea.trim().length < 10}><Send size={17} /></button>
+      </div>
+    </form>
+    {!loading && <div className="empty-example-prompts">
+      <span>{locale === "zh" ? "从示例开始" : "Try an example"}</span>
+      <div>{emptyProjectExamples.map((example) => (
+        <button type="button" key={example.label} onClick={() => setIdea(locale === "zh" ? example.value : example.valueEn)}>
+          {locale === "zh" ? example.label : ({
+            智能穿戴: "Smart wearable",
+            桌面装置: "Desktop object",
+            交互机器人: "Interactive robot",
+            环境感知设备: "Environment sensing",
+          }[example.label])}
+        </button>
+      ))}</div>
+    </div>}
   </div>;
 }
 
@@ -1194,12 +1415,14 @@ function ConversationThread({
   compact = false,
   onSuggestion,
   onTool,
+  locale = "zh",
 }: {
   messages: ChatMessage[];
   busy: boolean;
   compact?: boolean;
   onSuggestion: (value: string) => void;
-  onTool: (tool: ConversationToolCall, sourceMessage?: string) => void;
+  onTool: (tool: ConversationToolCall, sourceMessage?: string, messageId?: string) => void;
+  locale?: Locale;
 }) {
   const visibleMessages = compact ? messages.slice(-5) : messages;
   return <div className={`chat conversation-thread ${compact ? "compact" : ""}`}>
@@ -1207,10 +1430,13 @@ function ConversationThread({
       <div className="conversation-welcome">
         <AgentOrb active={busy} size="small" />
         <div>
-          <strong>先告诉我你想推进什么</strong>
-          <p>我会先形成计划、识别模糊意图并提供推测选项，不会直接改写 ProjectSpec。</p>
+          <strong>{locale === "zh" ? "先告诉我你想推进什么" : "Tell me what you want to move forward"}</strong>
+          <p>{locale === "zh" ? "我会先形成计划、识别模糊意图并提供推测选项，不会直接改写 ProjectSpec。" : "I will plan first, interpret ambiguity, and offer choices without rewriting the ProjectSpec."}</p>
           <div>
-            {["规划下一阶段", "处理当前待确认项", "检查哪些内容还不能执行"].map((value) => (
+            {(locale === "zh"
+              ? ["规划下一阶段", "处理当前待确认项", "检查哪些内容还不能执行"]
+              : ["Plan the next stage", "Resolve the current open item", "Check what is still blocked"]
+            ).map((value) => (
               <button type="button" disabled={busy} key={value} onClick={() => onSuggestion(value)}>
                 {value}<ArrowRight size={12} />
               </button>
@@ -1242,7 +1468,7 @@ function ConversationThread({
         )}
         {item.role === "agent" && item.suggestions && item.suggestions.length > 0 && (
           <div className="conversation-suggestions">
-            <header><Lightbulb size={14} /><strong>请选择最接近你意图的推测</strong></header>
+            <header><Lightbulb size={14} /><strong>{locale === "zh" ? "请选择最接近你意图的推测" : "Choose the closest interpretation"}</strong></header>
             {item.suggestions.map((suggestion) => (
               <button
                 type="button"
@@ -1257,9 +1483,12 @@ function ConversationThread({
             ))}
           </div>
         )}
+        {item.role === "agent" && item.proposalPending && item.specDiff && (
+          <SpecDiffCard diff={item.specDiff} locale={locale} />
+        )}
         {item.role === "agent" && tools.length > 0 && (
           <div className="tool-proposals">
-            <header><Settings2 size={14} /><strong>建议调用的工具</strong></header>
+            <header><Settings2 size={14} /><strong>{locale === "zh" ? "建议调用的工具" : "Suggested tools"}</strong></header>
             {tools.map((tool) => (
               <div key={tool.id}>
                 <span>{tool.action === "confirm_spec" ? <FileText size={14} /> : tool.action === "validate" ? <ClipboardCheck size={14} /> : <Sparkles size={14} />}</span>
@@ -1268,8 +1497,10 @@ function ConversationThread({
                   <p>{tool.description}</p>
                   <small>{tool.requires_confirmation ? "点击后执行，需要你的明确确认" : "确定性工具，可直接执行"}</small>
                 </div>
-                <button type="button" disabled={busy} onClick={() => onTool(tool, item.proposalMessage)}>
-                  {tool.action === "confirm_spec" ? "确认执行" : "运行工具"}
+                <button type="button" disabled={busy || (tool.action === "confirm_spec" && !item.id)} onClick={() => onTool(tool, item.proposalMessage, item.id)}>
+                  {tool.action === "confirm_spec"
+                    ? (locale === "zh" ? "确认执行" : "Confirm")
+                    : (locale === "zh" ? "运行工具" : "Run tool")}
                 </button>
               </div>
             ))}
@@ -1283,8 +1514,43 @@ function ConversationThread({
         )}
       </div>;
     })}
-    {busy && <div className="conversation-thinking"><LoaderCircle className="spin" size={14} />Agent 正在识别意图并编排计划…</div>}
+    {busy && <div className="conversation-thinking"><LoaderCircle className="spin" size={14} />{locale === "zh" ? "Agent 正在识别意图并编排计划…" : "Agent is interpreting intent and planning…"}</div>}
   </div>;
+}
+
+function SpecDiffCard({ diff, locale }: { diff: SpecDiffPreview; locale: Locale }) {
+  const groups = [
+    { title: locale === "zh" ? "新增了什么" : "Added", tone: "added", entries: diff.additions },
+    { title: locale === "zh" ? "修改了什么" : "Changed", tone: "changed", entries: diff.modifications },
+  ];
+  return <section className="spec-diff-preview" aria-label="ProjectSpec 修改差异预览">
+    <header>
+      <GitBranch size={14} />
+      <div><strong>{locale === "zh" ? "确认前差异预览" : "Change preview before confirmation"}</strong><small>{locale === "zh" ? "只有点击“确认执行”后才会创建新版本" : "A new version is created only after you confirm"}</small></div>
+    </header>
+    <div className="spec-diff-grid">
+      {groups.map((group) => (
+        <div className={group.tone} key={group.title}>
+          <strong>{group.title}</strong>
+          {group.entries.length ? group.entries.map((entry) => (
+            <p key={entry.field}><span>{entry.label}</span><del>{entry.before}</del><ArrowRight size={11} /><ins>{entry.after}</ins></p>
+          )) : <small>{locale === "zh" ? "本次没有" : "None"}</small>}
+        </div>
+      ))}
+      <div className="unchanged">
+        <strong>{locale === "zh" ? "哪些内容保持不变" : "Unchanged"}</strong>
+        <p>{diff.unchanged.length
+          ? diff.unchanged.map((item) => `${item.label}：${item.value}`).join(" · ")
+          : (locale === "zh" ? "其余 ProjectSpec 字段均保持不变" : "All other ProjectSpec fields remain unchanged")}</p>
+      </div>
+      <div className="invalidated">
+        <strong>{locale === "zh" ? "哪些下游文件会失效" : "Downstream assets invalidated"}</strong>
+        <p>{diff.invalidated_artifacts.length
+          ? diff.invalidated_artifacts.join("、")
+          : (locale === "zh" ? "没有已识别的下游工程资产" : "No downstream engineering assets identified")}</p>
+      </div>
+    </div>
+  </section>;
 }
 
 function ConversationComposer({
@@ -1293,18 +1559,20 @@ function ConversationComposer({
   compact = false,
   onChange,
   onSubmit,
+  locale = "zh",
 }: {
   value: string;
   busy: boolean;
   compact?: boolean;
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
+  locale?: Locale;
 }) {
   return <form className={`composer conversation-composer ${compact ? "compact" : ""}`} onSubmit={onSubmit}>
     <textarea
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      placeholder="描述目标、提出修改，或说“帮我规划下一步”…"
+      placeholder={locale === "zh" ? "描述目标、提出修改，或说“帮我规划下一步”…" : "Describe a goal, request a change, or ask to plan the next step…"}
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
@@ -1313,7 +1581,9 @@ function ConversationComposer({
       }}
     />
     <div>
-      <small>{busy ? "Agent 正在工作…" : "Enter 发送 · Shift + Enter 换行 · 确认前不会改写 ProjectSpec"}</small>
+      <small>{busy
+        ? (locale === "zh" ? "Agent 正在工作…" : "Agent is working…")
+        : (locale === "zh" ? "Enter 发送 · Shift + Enter 换行 · 确认前不会改写 ProjectSpec" : "Enter to send · Shift + Enter for a new line · ProjectSpec changes require confirmation")}</small>
       <button aria-label="发送消息" disabled={busy || !value.trim()}><Send size={16} /></button>
     </div>
   </form>;
@@ -1327,6 +1597,9 @@ function ConversationCheckpoint({
   onConfirmRequirement,
   onRecommendRequirement,
   onConfirmArtifact,
+  onDeferQuestion,
+  onAskAgent,
+  locale = "zh",
 }: {
   question?: { item: Traced<string>; index: number };
   artifact?: Artifact;
@@ -1340,6 +1613,9 @@ function ConversationCheckpoint({
     question_index?: number;
   }) => Promise<ComponentRecommendation>;
   onConfirmArtifact: (artifactId: string, note: string) => Promise<void>;
+  onDeferQuestion: (questionIndex: number) => void;
+  onAskAgent: (message: string) => void;
+  locale?: Locale;
 }) {
   const [answer, setAnswer] = useState("");
   const [note, setNote] = useState("");
@@ -1347,34 +1623,37 @@ function ConversationCheckpoint({
   const [recommendation, setRecommendation] = useState<ComponentRecommendation | null>(null);
   const [loadingRecommendation, setLoadingRecommendation] = useState(false);
 
+  function loadRecommendation() {
+    if (!question) return;
+    setLoadingRecommendation(true);
+    void onRecommendRequirement({ question_index: question.index })
+      .then(setRecommendation)
+      .catch(() => undefined)
+      .finally(() => setLoadingRecommendation(false));
+  }
+
   if (question) {
     return <section className="conversation-checkpoint" aria-label="对话中的需求确认">
       <div className="checkpoint-head">
         <AgentOrb size="small" />
         <div>
-          <span>需要你的确认 · ProjectSpec</span>
+          <span>{locale === "zh" ? "需要你的确认" : "Your confirmation is needed"} · ProjectSpec</span>
           <strong>{question.item.value}</strong>
           <p>{question.item.notes || "这项信息会影响后续选型、成本或实现方式，因此 Agent 不会自行猜测并写入需求。"}</p>
         </div>
-        <Badge tone="waiting">待确认</Badge>
+        <Badge tone="waiting">{locale === "zh" ? "待确认" : "Open"}</Badge>
       </div>
       <div className="checkpoint-actions">
         <button
           type="button"
           className="button secondary compact"
           disabled={busy || loadingRecommendation}
-          onClick={() => {
-            setLoadingRecommendation(true);
-            void onRecommendRequirement({ question_index: question.index })
-              .then(setRecommendation)
-              .catch(() => undefined)
-              .finally(() => setLoadingRecommendation(false));
-          }}
+          onClick={loadRecommendation}
         >
           {loadingRecommendation ? <LoaderCircle className="spin" size={14} /> : <Lightbulb size={14} />}
-          让 Agent 推荐 3 个候选
+          {locale === "zh" ? "让 Agent 推荐 3 个候选" : "Ask Agent for 3 candidates"}
         </button>
-        <span>或直接回复你已经确认的事实</span>
+        <span>{locale === "zh" ? "或直接回复你已经确认的事实" : "Or enter a fact you have already confirmed"}</span>
       </div>
       {recommendation && <RecommendationPanel
         data={recommendation}
@@ -1386,11 +1665,29 @@ function ConversationCheckpoint({
           });
         }}
       />}
+      <div className="checkpoint-quick-replies" aria-label="快捷回答">
+        {recommendation?.candidates.find((candidate) => candidate.recommended) && <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            const candidate = recommendation.candidates.find((item) => item.recommended)!;
+            void onConfirmRequirement({
+              question_index: question.index,
+              answer: `选择候选：${candidate.name}。选择理由：${candidate.fit_reason}。待验证：${candidate.verification_required.join("、")}。`,
+            });
+          }}
+        ><Check size={13} />{locale === "zh" ? "采用推荐方案" : "Use recommendation"}</button>}
+        <button type="button" disabled={busy} onClick={() => onDeferQuestion(question.index)}>{locale === "zh" ? "暂时跳过" : "Skip for now"}</button>
+        <button type="button" disabled={busy} onClick={() => onAskAgent(
+          `我不确定“${question.item.value}”。请解释做决定前需要考虑的因素，不要修改 ProjectSpec。`,
+        )}>{locale === "zh" ? "我不确定" : "I'm not sure"}</button>
+        <button type="button" disabled={busy || loadingRecommendation} onClick={loadRecommendation}>{locale === "zh" ? "比较其他方案" : "Compare alternatives"}</button>
+      </div>
       <div className="checkpoint-reply">
         <input
           aria-label={`回答问题：${question.item.value}`}
           value={answer}
-          placeholder="输入已确认的信息；不确定时可以先查看 Agent 候选"
+          placeholder={locale === "zh" ? "输入已确认的信息；不确定时可以先查看 Agent 候选" : "Enter a confirmed fact, or review Agent candidates first"}
           onChange={(event) => setAnswer(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && answer.trim() && !busy) {
@@ -1408,7 +1705,7 @@ function ConversationCheckpoint({
             question_index: question.index,
             answer: answer.trim(),
           })}
-        ><Check size={14} />确认并推进</button>
+        ><Check size={14} />{locale === "zh" ? "确认并推进" : "Confirm and continue"}</button>
       </div>
     </section>;
   }
@@ -1477,7 +1774,7 @@ function Overview({
   project, spec, artifacts, messages, message, busy,
   workflowStages, onMessageChange, onSend, onSuggestion, onTool,
   onConfirmRequirement, onRecommendRequirement, onConfirmArtifact,
-  setActive, exportProject, onDelete,
+  setActive, exportProject, onDelete, canUndo, onUndo, locale,
 }: {
   project: ProjectSummary;
   spec: ProjectSpec;
@@ -1489,7 +1786,7 @@ function Overview({
   onMessageChange: (value: string) => void;
   onSend: (event: FormEvent) => void;
   onSuggestion: (value: string) => void;
-  onTool: (tool: ConversationToolCall, sourceMessage?: string) => void;
+  onTool: (tool: ConversationToolCall, sourceMessage?: string, messageId?: string) => void;
   onConfirmRequirement: (payload: {
     field?: string;
     value?: string | number;
@@ -1504,10 +1801,17 @@ function Overview({
   setActive: (value: string) => void;
   exportProject: () => void;
   onDelete: () => void;
+  canUndo: boolean;
+  onUndo: () => void;
+  locale: Locale;
 }) {
-  const questionEntries = spec.open_questions
+  const [deferredQuestions, setDeferredQuestions] = useState<number[]>([]);
+  const allQuestionEntries = spec.open_questions
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.verification_status !== "USER_CONFIRMED");
+  const questionEntries = allQuestionEntries.filter(
+    ({ index }) => !deferredQuestions.includes(index),
+  );
   const staleArtifact = artifacts.find((item) =>
     ["GENERATED", "NEEDS_CONFIRMATION"].includes(item.status)
     && item.source_spec_version !== project.current_spec_version,
@@ -1554,32 +1858,94 @@ function Overview({
             objective: "检查硬件规则、协议一致性与代码静态质量，并记录真实结果。",
             next: "选择验证范围并运行",
           };
+  const localizedStep = locale === "zh" ? currentStep : questionEntries.length
+    ? {
+        ...currentStep,
+        title: "Clarify and confirm requirements",
+        objective: "Resolve information gaps that affect component choices, cost, or implementation.",
+        next: `Answer: ${questionEntries[0].item.value}`,
+      }
+    : staleArtifact
+      ? {
+          ...currentStep,
+          title: `Regenerate from ProjectSpec v${project.current_spec_version}`,
+          objective: "The requirements changed, so outdated engineering files must be regenerated before review.",
+          next: `Regenerate: ${nextGeneration ? navEnglish[nextGeneration.label] ?? nextGeneration.label : staleArtifact.path}`,
+        }
+      : pendingArtifact
+        ? {
+            ...currentStep,
+            title: "Review and confirm engineering files",
+            objective: "Check generated content against the current ProjectSpec while preserving unverified boundaries.",
+            next: `Review: ${pendingArtifact.path}`,
+          }
+        : nextGeneration
+          ? {
+              ...currentStep,
+              title: `Generate ${navEnglish[nextGeneration.label] ?? nextGeneration.label}`,
+              objective: "Generate the next traceable engineering assets from the current ProjectSpec.",
+              next: `Run the ${navEnglish[nextGeneration.label] ?? nextGeneration.label} generator`,
+            }
+          : {
+              ...currentStep,
+              title: "Run deterministic engineering validation",
+              objective: "Check hardware rules, protocol consistency, and code quality with reproducible validators.",
+              next: "Choose a validation scope",
+            };
   const nextModule = nextGeneration
     ? moduleConfig[nextGeneration.label]?.module
     : undefined;
+  const confirmedFacts = [
+    spec.project.product_goal,
+    spec.user.target_user,
+    spec.scenario.usage_environment,
+    spec.hardware.preferred_controller,
+    spec.constraints.budget_cny,
+  ].filter((item) => item.verification_status === "USER_CONFIRMED");
+  const stopReason = questionEntries.length
+    ? (locale === "zh" ? "存在会影响选型、成本或实现方式的关键信息缺口，Agent 不会用猜测替代用户确认。" : "Key information that affects selection, cost, or implementation is missing. The Agent will not substitute guesses for your confirmation.")
+    : staleArtifact
+      ? (locale === "zh" ? "ProjectSpec 已更新，旧版本工程文件不能继续作为当前依据。" : "The ProjectSpec changed, so files derived from an older version are no longer current.")
+      : pendingArtifact
+        ? (locale === "zh" ? "生成内容尚未经过你的内容审阅，不能直接进入验证结论。" : "Generated content still needs your review before it can support a validation conclusion.")
+        : nextGeneration
+          ? (locale === "zh" ? "当前需求足以生成下一组工程资产，正在等待你授权调用工具。" : "Current requirements are sufficient; the workflow is waiting for your authorization to run the next generator.")
+          : (locale === "zh" ? "工程资产已经就绪，下一步需要运行可复现的确定性验证。" : "Engineering assets are ready. The next step is reproducible deterministic validation.");
+  const missingForNext = questionEntries.length
+    ? questionEntries.slice(0, 2).map(({ item }) => item.value).join("；")
+    : staleArtifact
+      ? (locale === "zh"
+          ? `按 v${project.current_spec_version} 重新生成 ${nextGeneration?.label ?? "受影响模块"}`
+          : `Regenerate ${nextGeneration ? navEnglish[nextGeneration.label] ?? nextGeneration.label : "affected modules"} from v${project.current_spec_version}`)
+      : pendingArtifact
+        ? `${locale === "zh" ? "审阅并确认" : "Review and confirm"} ${pendingArtifact.path}`
+        : nextGeneration
+          ? `${locale === "zh" ? "生成" : "Generate"} ${locale === "zh" ? nextGeneration.label : navEnglish[nextGeneration.label] ?? nextGeneration.label}`
+          : (locale === "zh" ? "选择硬件、协议或代码验证范围" : "Choose hardware, protocol, or code validation");
   return <>
     <PageHead
       title={project.name}
       kicker={`● ProjectSpec v${project.current_spec_version}`}
       description={spec.project.product_goal.value}
     >
-      <button className="button danger" onClick={onDelete}><Trash2 size={16} /> 删除项目</button>
-      <button className="button secondary" onClick={exportProject}><Download size={16} /> 导出工程包</button>
-      <button className="button primary" onClick={() => onSuggestion("请根据当前状态规划下一步")}>继续对话 <ArrowRight size={16} /></button>
+      <button className="button danger" onClick={onDelete}><Trash2 size={16} />{locale === "zh" ? "删除项目" : "Delete project"}</button>
+      <button className="button secondary" disabled={!canUndo || busy} onClick={onUndo}><RotateCcw size={16} />{locale === "zh" ? "撤回上一步" : "Undo last change"}</button>
+      <button className="button secondary" onClick={exportProject}><Download size={16} />{locale === "zh" ? "导出工程包" : "Export package"}</button>
+      <button className="button primary" onClick={() => onSuggestion(locale === "zh" ? "请根据当前状态规划下一步" : "Plan the next step from the current state")}>{locale === "zh" ? "继续对话" : "Continue conversation"} <ArrowRight size={16} /></button>
     </PageHead>
     <section className="conversation-workspace">
       <header className="conversation-stage">
         <AgentOrb active={busy} size="large" />
         <div className="conversation-stage-copy">
-          <span className="kicker">Current step · {currentStep.index}/4</span>
-          <h2>{currentStep.title}</h2>
-          <p>{currentStep.objective}</p>
-          <small><ArrowRight size={12} />下一步：{currentStep.next}</small>
+          <span className="kicker">Current step · {localizedStep.index}/4</span>
+          <h2>{localizedStep.title}</h2>
+          <p>{localizedStep.objective}</p>
+          <small><ArrowRight size={12} />{locale === "zh" ? "下一步" : "Next"}：{localizedStep.next}</small>
         </div>
         <div className="conversation-stage-progress" aria-label="项目推进流程">
-          {["需求", "生成", "确认", "验证"].map((label, index) => (
-            <span className={index + 1 < currentStep.index ? "done" : index + 1 === currentStep.index ? "active" : ""} key={label}>
-              <i>{index + 1 < currentStep.index ? <Check size={10} /> : index + 1}</i>{label}
+          {(locale === "zh" ? ["需求", "生成", "确认", "验证"] : ["Requirements", "Generate", "Review", "Validate"]).map((label, index) => (
+            <span className={index + 1 < localizedStep.index ? "done" : index + 1 === localizedStep.index ? "active" : ""} key={label}>
+              <i>{index + 1 < localizedStep.index ? <Check size={10} /> : index + 1}</i>{label}
             </span>
           ))}
         </div>
@@ -1591,6 +1957,7 @@ function Overview({
             busy={busy}
             onSuggestion={onSuggestion}
             onTool={onTool}
+            locale={locale}
           />
           <ConversationCheckpoint
             key={questionEntries[0]
@@ -1604,16 +1971,33 @@ function Overview({
             onConfirmRequirement={onConfirmRequirement}
             onRecommendRequirement={onRecommendRequirement}
             onConfirmArtifact={onConfirmArtifact}
+            onDeferQuestion={(index) => setDeferredQuestions((items) => [...new Set([...items, index])])}
+            onAskAgent={onSuggestion}
+            locale={locale}
           />
           <ConversationComposer
             value={message}
             busy={busy}
             onChange={onMessageChange}
             onSubmit={onSend}
+            locale={locale}
           />
         </div>
         <div className="conversation-plan">
-          <span className="kicker">Workflow 实时状态</span>
+          <section className="context-summary" aria-label="Agent 上下文摘要">
+            <header><AgentOrb size="small" /><div><span className="kicker">Agent context</span><strong>{locale === "zh" ? "Agent 上下文摘要" : "Agent context summary"}</strong></div></header>
+            <dl>
+              <div><dt>{locale === "zh" ? "当前目标" : "Current goal"}</dt><dd>{spec.project.product_goal.value}</dd></div>
+              <div><dt>{locale === "zh" ? "已确认事项" : "Confirmed"}</dt><dd>{confirmedFacts.length} / 5 {locale === "zh" ? "个关键事实" : "key facts"}</dd></div>
+              <div><dt>{locale === "zh" ? "尚未确认事项" : "Open items"}</dt><dd>{allQuestionEntries.length} {locale === "zh" ? "项" : "items"}{allQuestionEntries[0] ? ` · ${allQuestionEntries[0].item.value}` : ""}</dd></div>
+              <div><dt>{locale === "zh" ? "下一步建议" : "Suggested next step"}</dt><dd>{localizedStep.next}</dd></div>
+            </dl>
+          </section>
+          <section className="stage-guidance" aria-label="当前阶段说明">
+            <div><strong>{locale === "zh" ? "当前为什么停在这里" : "Why the workflow is paused here"}</strong><p>{stopReason}</p></div>
+            <div><strong>{locale === "zh" ? "完成下一阶段还缺什么" : "What is needed for the next stage"}</strong><p>{missingForNext}</p></div>
+          </section>
+          <span className="kicker">{locale === "zh" ? "Workflow 实时状态" : "Live workflow status"}</span>
           {workflowStages.filter((stage) => ["需求", "系统架构", "硬件方案", "固件代码", "验证记录"].includes(stage.label)).map((stage, index) => (
             <button
               type="button"
@@ -1622,12 +2006,12 @@ function Overview({
               onClick={() => setActive(stage.destination)}
             >
               <span>{stage.tone === "done" ? <Check size={12} /> : index + 1}</span>
-              <div><strong>{stage.label}</strong><small>{stage.detail}</small></div>
+              <div><strong>{locale === "zh" ? stage.label : navEnglish[stage.label] ?? stage.label}</strong><small>{localizedWorkflowDetail(stage.detail, locale)}</small></div>
               <ChevronRight size={14} />
             </button>
           ))}
           <div className="conversation-quick-tools">
-            <strong>推荐操作</strong>
+            <strong>{locale === "zh" ? "推荐操作" : "Suggested actions"}</strong>
             <button type="button" disabled={busy} onClick={() => onSuggestion("检查当前还有哪些信息需要确认")}>
               <Lightbulb size={13} />规划下一步
             </button>
@@ -1658,6 +2042,7 @@ function Overview({
 function ModuleView({
   title, description, artifacts, selected, preview, onOpen,
   projectId, projectSpecVersion, spec, versions, onReturnToConversation,
+  onAskSelection,
 }: {
   title: string;
   description: string;
@@ -1670,7 +2055,27 @@ function ModuleView({
   spec?: ProjectSpec;
   versions?: SpecVersion[];
   onReturnToConversation: () => void;
+  onAskSelection: (quote: string, path: string) => void;
 }) {
+  const previewRef = useRef<HTMLPreElement>(null);
+  const [quoteSelection, setQuoteSelection] = useState({ artifactId: "", text: "" });
+  const selectedQuote = quoteSelection.artifactId === selected?.id ? quoteSelection.text : "";
+
+  function captureSelection() {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? "";
+    const anchor = selection?.anchorNode;
+    const focus = selection?.focusNode;
+    if (
+      text.length >= 2
+      && anchor && focus
+      && previewRef.current?.contains(anchor)
+      && previewRef.current.contains(focus)
+    ) {
+      setQuoteSelection({ artifactId: selected?.id ?? "", text: text.slice(0, 1600) });
+    }
+  }
+
   return <>
     <PageHead title={title} kicker="工程模块" description={description}>
       <button className="button primary" onClick={onReturnToConversation}><ArrowRight size={16} /> 返回对话推进</button>
@@ -1706,11 +2111,15 @@ function ModuleView({
         <div>
           <span>{selected?.path ?? "选择文件进行预览"}</span>
           <div className="actions">
+            {selected && selectedQuote && <button
+              className="button primary compact ask-selection"
+              onClick={() => onAskSelection(selectedQuote, selected.path)}
+            ><Quote size={14} />询问 Agent</button>}
             <button className="button secondary compact" disabled={!selected} onClick={() => void navigator.clipboard.writeText(preview)}><Clipboard size={14} />复制</button>
             {selected && <a className="button secondary compact" href={`${API_URL}/api/projects/${projectId}/artifacts/${selected.id}`} download><Download size={14} />下载</a>}
           </div>
         </div>
-        <pre>{preview || "选择左侧工程文件。支持 Markdown、JSON、YAML、CSV、Python、C++ 与 TypeScript 文本预览。"}</pre>
+        <pre ref={previewRef} onMouseUp={captureSelection} onKeyUp={captureSelection}>{preview || "选择左侧工程文件。支持 Markdown、JSON、YAML、CSV、Python、C++ 与 TypeScript 文本预览。"}</pre>
       </section>
     </div>
   </>;
@@ -2053,13 +2462,19 @@ function PlanningCreateModal({
   close,
   onPlan,
   onCreate,
+  initialIdea = "",
+  autoPlan = false,
+  locale = "zh",
 }: {
   closing: boolean;
   close: () => void;
   onPlan: (description: string) => Promise<ProjectPlan>;
   onCreate: (data: ProjectForm) => Promise<void>;
+  initialIdea?: string;
+  autoPlan?: boolean;
+  locale?: Locale;
 }) {
-  const [idea, setIdea] = useState("");
+  const [idea, setIdea] = useState(initialIdea);
   const [plan, setPlan] = useState<ProjectPlan | null>(null);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [projectName, setProjectName] = useState("");
@@ -2068,11 +2483,8 @@ function PlanningCreateModal({
   const [creating, setCreating] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [error, setError] = useState("");
+  const autoPlanStarted = useRef(false);
   const dialogRef = useDialogFocus<HTMLDivElement>(close);
-
-  if (advanced) {
-    return <CreateModal closing={closing} close={close} onCreate={onCreate} />;
-  }
 
   async function createPlan() {
     if (idea.trim().length < 10) {
@@ -2096,6 +2508,18 @@ function PlanningCreateModal({
     } finally {
       setPlanning(false);
     }
+  }
+
+  useEffect(() => {
+    if (!autoPlan || autoPlanStarted.current || initialIdea.trim().length < 10) return;
+    autoPlanStarted.current = true;
+    void createPlan();
+    // This runs once for a seeded planning dialog; changing fields does not restart planning.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlan, initialIdea]);
+
+  if (advanced) {
+    return <CreateModal closing={closing} close={close} onCreate={onCreate} />;
   }
 
   async function confirmPlan() {
@@ -2157,8 +2581,8 @@ function PlanningCreateModal({
     >
       <header>
         <div>
-          <span className="kicker">{plan ? "计划确认" : "对话式项目规划"}</span>
-          <h2 id="planning-project-title">{plan ? "核对 Agent 的理解与推测" : "你想做一个什么产品？"}</h2>
+          <span className="kicker">{plan ? (locale === "zh" ? "计划确认" : "Plan review") : (locale === "zh" ? "对话式项目规划" : "Conversational project planning")}</span>
+          <h2 id="planning-project-title">{plan ? (locale === "zh" ? "核对 Agent 的理解与推测" : "Review the Agent’s interpretation") : (locale === "zh" ? "你想做一个什么产品？" : "What product would you like to build?")}</h2>
         </div>
         <button className="icon" aria-label="关闭新建项目" onClick={close}><X size={20} /></button>
       </header>
@@ -2167,28 +2591,28 @@ function PlanningCreateModal({
         <div className="planning-agent-message">
           <AgentOrb active={planning} size="medium" />
           <div>
-            <strong>先说想法，不需要填写完整表单</strong>
-            <p>我会把模糊描述整理成计划，给出推测选项和拟调用工具。确认前不会创建项目或写入 ProjectSpec。</p>
+            <strong>{locale === "zh" ? "先说想法，不需要填写完整表单" : "Start with an idea—no long form required"}</strong>
+            <p>{locale === "zh" ? "我会把模糊描述整理成计划，给出推测选项和拟调用工具。确认前不会创建项目或写入 ProjectSpec。" : "I will turn a rough description into a plan, proposed choices, and tool calls. Nothing is written before your confirmation."}</p>
           </div>
         </div>
         <label className="planning-input">
-          <span>产品想法</span>
+          <span>{locale === "zh" ? "产品想法" : "Product idea"}</span>
           <textarea
             autoFocus
             value={idea}
             onChange={(event) => setIdea(event.target.value)}
             placeholder="例如：我想做一个帮助长时间伏案设计师改善坐姿的桌面装置，能感知使用状态并用柔和方式提醒，但我还不知道该选什么传感器和主控。"
           />
-          <small>{idea.length}/6000 · 可以包含目标、用户、场景、交互和已有条件，也可以只说一个模糊概念。</small>
+          <small>{idea.length}/6000 · {locale === "zh" ? "可以包含目标、用户、场景、交互和已有条件，也可以只说一个模糊概念。" : "Include goals, users, contexts, interactions, and constraints—or begin with a rough concept."}</small>
         </label>
         <div className="planning-preview-strip">
-          <div><span>1</span><strong>意图识别</strong><small>理解目标与边界</small></div>
+          <div><span>1</span><strong>{locale === "zh" ? "意图识别" : "Interpret"}</strong><small>{locale === "zh" ? "理解目标与边界" : "Understand goals"}</small></div>
           <ChevronRight size={14} />
-          <div><span>2</span><strong>计划拆解</strong><small>排列开发步骤</small></div>
+          <div><span>2</span><strong>{locale === "zh" ? "计划拆解" : "Plan"}</strong><small>{locale === "zh" ? "排列开发步骤" : "Sequence stages"}</small></div>
           <ChevronRight size={14} />
-          <div><span>3</span><strong>推测确认</strong><small>选择推荐或备选</small></div>
+          <div><span>3</span><strong>{locale === "zh" ? "推测确认" : "Choose"}</strong><small>{locale === "zh" ? "选择推荐或备选" : "Review assumptions"}</small></div>
           <ChevronRight size={14} />
-          <div><span>4</span><strong>工具编排</strong><small>确认后再执行</small></div>
+          <div><span>4</span><strong>{locale === "zh" ? "工具编排" : "Orchestrate"}</strong><small>{locale === "zh" ? "确认后再执行" : "Execute after review"}</small></div>
         </div>
         {error && <p className="form-error">{error}</p>}
       </div> : <div className="planning-review modal-stage-content" key="planning-review">
@@ -2198,13 +2622,13 @@ function PlanningCreateModal({
         </div>
 
         <section className="plan-intent">
-          <header><span>模糊意图识别</span><Badge tone={plan.intent.confidence < 0.75 ? "waiting" : "active"}>{Math.round(plan.intent.confidence * 100)}% 置信度</Badge></header>
+          <header><span>{locale === "zh" ? "模糊意图识别" : "Intent interpretation"}</span><Badge tone={plan.intent.confidence < 0.75 ? "waiting" : "active"}>{Math.round(plan.intent.confidence * 100)}% {locale === "zh" ? "置信度" : "confidence"}</Badge></header>
           <strong>{plan.intent.label}</strong>
           <p>{plan.intent.rationale}</p>
         </section>
 
         <section className="plan-phases">
-          <header><span className="kicker">建议推进计划</span><small>{plan.phases.length} 个阶段</small></header>
+          <header><span className="kicker">{locale === "zh" ? "建议推进计划" : "Suggested workflow"}</span><small>{plan.phases.length} {locale === "zh" ? "个阶段" : "stages"}</small></header>
           {plan.phases.map((phase, index) => (
             <div key={phase.id}>
               <span>{index + 1}</span>
@@ -2215,8 +2639,8 @@ function PlanningCreateModal({
 
         <section className="plan-ambiguities">
           <header>
-            <span className="kicker">需要你选择的推测</span>
-            <p>“推荐”只是 Agent 的起点建议；你的选择才会作为用户确认内容写入 ProjectSpec。</p>
+            <span className="kicker">{locale === "zh" ? "需要你选择的推测" : "Assumptions for you to choose"}</span>
+            <p>{locale === "zh" ? "“推荐”只是 Agent 的起点建议；你的选择才会作为用户确认内容写入 ProjectSpec。" : "Recommendations are starting points. Only your choices are recorded as user-confirmed ProjectSpec facts."}</p>
           </header>
           {plan.ambiguities.map((question) => (
             <article key={question.id}>
@@ -2229,7 +2653,7 @@ function PlanningCreateModal({
                     key={`${question.id}-${option.value}`}
                     onClick={() => setSelected((current) => ({ ...current, [question.id]: option.value }))}
                   >
-                    <span>{option.recommended ? "推荐" : "备选"}</span>
+                    <span>{option.recommended ? (locale === "zh" ? "推荐" : "Recommended") : (locale === "zh" ? "备选" : "Alternative")}</span>
                     <strong>{option.label}</strong>
                     <p>{option.rationale}</p>
                     {selected[question.id] === option.value && <Check size={15} />}
@@ -2241,11 +2665,11 @@ function PlanningCreateModal({
         </section>
 
         <section className="plan-confirmation">
-          <label><span>计划名称</span><input value={projectName} onChange={(event) => setProjectName(event.target.value)} /></label>
-          <label><span>补充或纠正 Agent 的理解（可选）</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：我已有一块开发板，但型号稍后确认；第一版不需要机器学习。" /></label>
+          <label><span>{locale === "zh" ? "计划名称" : "Project name"}</span><input value={projectName} onChange={(event) => setProjectName(event.target.value)} /></label>
+          <label><span>{locale === "zh" ? "补充或纠正 Agent 的理解（可选）" : "Correct or add context (optional)"}</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={locale === "zh" ? "例如：我已有一块开发板，但型号稍后确认；第一版不需要机器学习。" : "For example: I already have a development board, but will confirm its model later; v1 does not need machine learning."} /></label>
           <div>
             <ShieldCheck size={15} />
-            <p><strong>执行边界</strong>创建项目只会生成 ProjectSpec 和工程文件；不会采购、烧录、接线、上电或操作真实硬件。</p>
+            <p><strong>{locale === "zh" ? "执行边界" : "Execution boundary"}</strong>{locale === "zh" ? "创建项目只会生成 ProjectSpec 和工程文件；不会采购、烧录、接线、上电或操作真实硬件。" : "Creating a project only generates a ProjectSpec and engineering files. It never purchases, flashes, wires, powers, or operates real hardware."}</p>
           </div>
         </section>
         {plan.warning && <p className="planning-warning">DeepSeek 本次不可用，当前显示的是安全的确定性规划草案：{plan.warning}</p>}
@@ -2254,20 +2678,20 @@ function PlanningCreateModal({
 
       <footer>
         {!plan ? <>
-          <button className="button secondary" disabled={planning} onClick={() => setAdvanced(true)}>使用高级表单</button>
+          <button className="button secondary" disabled={planning} onClick={() => setAdvanced(true)}>{locale === "zh" ? "使用高级表单" : "Use advanced form"}</button>
           <button className="button primary" disabled={planning || idea.trim().length < 10} onClick={() => void createPlan()}>
             {planning ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
-            {planning ? "Agent 正在规划…" : "让 Agent 先规划"}
+            {planning ? (locale === "zh" ? "Agent 正在规划…" : "Agent is planning…") : (locale === "zh" ? "让 Agent 先规划" : "Plan with Agent")}
           </button>
         </> : <>
           <button className="button secondary" disabled={creating} onClick={() => {
             setPlan(null);
             setSelected({});
             setError("");
-          }}>修改想法</button>
+          }}>{locale === "zh" ? "修改想法" : "Edit idea"}</button>
           <button className="button primary" disabled={creating} onClick={() => void confirmPlan()}>
             {creating ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
-            {creating ? "正在创建 ProjectSpec…" : "确认计划并创建项目"}
+            {creating ? (locale === "zh" ? "正在创建 ProjectSpec…" : "Creating ProjectSpec…") : (locale === "zh" ? "确认计划并创建项目" : "Confirm plan and create project")}
           </button>
         </>}
       </footer>

@@ -23,13 +23,17 @@ test("starter preview markers are removed", async () => {
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
 
-test("visual workbench preserves the original empty-project structure without invented branding", async () => {
+test("visual workbench preserves the identity while the empty project starts from conversation", async () => {
   const [page, css] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
   assert.match(page, /home-empty/);
-  assert.match(page, /创建第一个智能产品原型/);
+  assert.match(page, /你想创造什么？/);
+  assert.match(page, /empty-conversation-composer/);
+  assert.match(page, /emptyProjectExamples/);
+  assert.match(page, /正在预加载健康状态和项目列表/);
+  assert.match(page, /empty-workflow-note/);
   assert.match(page, /initial-view/);
   assert.match(page, /Designer Prototype Agent 标志/);
   assert.match(page, /IntroCover/);
@@ -73,10 +77,38 @@ test("visual workbench preserves the original empty-project structure without in
   assert.doesNotMatch(page, /landing-shell|workflow-overview/);
 });
 
+test("conversation UX supports diff confirmation, undo, summaries, quick replies, quotes, and bilingual navigation", async () => {
+  const [page, api, types] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../server/api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../server/types.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /spec-diff-preview/);
+  for (const label of ["新增了什么", "修改了什么", "哪些内容保持不变", "哪些下游文件会失效"]) {
+    assert.match(page, new RegExp(label));
+  }
+  assert.match(page, /撤回上一步/);
+  assert.match(page, /Agent 上下文摘要/);
+  assert.match(page, /当前为什么停在这里/);
+  assert.match(page, /完成下一阶段还缺什么/);
+  for (const reply of ["采用推荐方案", "暂时跳过", "我不确定", "比较其他方案"]) {
+    assert.match(page, new RegExp(reply));
+  }
+  assert.match(page, /询问 Agent/);
+  assert.match(page, /dpa-locale/);
+  assert.match(page, /navEnglish/);
+  assert.match(api, /messages" && parts\[4\] && parts\[5\] === "confirm"/);
+  assert.match(api, /proposal_change/);
+  assert.match(api, /buildSpecDiffPreview/);
+  assert.match(api, /撤回本次确认/);
+  assert.match(types, /SpecDiffPreview/);
+});
+
 test("requirements are confirmed inside the guided conversation and dropdowns are controlled", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /ConversationCheckpoint/);
-  assert.match(page, /需要你的确认 · ProjectSpec/);
+  assert.match(page, /需要你的确认/);
+  assert.match(page, /ProjectSpec/);
   assert.match(page, /确认并推进/);
   assert.match(page, /spec\/confirmations/);
   assert.match(page, /让 Agent 推荐 3 个候选/);

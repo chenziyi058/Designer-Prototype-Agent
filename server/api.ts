@@ -13,6 +13,7 @@ import type {
   ProjectSpec,
   RequirementChange,
   RequirementExtraction,
+  SpecDiffPreview,
   Traced,
 } from "./types";
 import { ModelProviderError } from "./runtime/model-provider";
@@ -312,6 +313,17 @@ const planningPhases: ProjectPlan["phases"] = [
     tool: "Deterministic Validators",
   },
 ];
+const planningPhasesEnglish: ProjectPlan["phases"] = [
+  { id: "requirements", title: "Clarify requirements", description: "Identify goals, users, contexts, and real-world constraints in a traceable ProjectSpec.", tool: "Requirement Interpreter" },
+  { id: "architecture", title: "Plan the system", description: "Define modules, data flow, control flow, and safety states.", tool: "Architecture Generator" },
+  { id: "hardware", title: "Compare approaches", description: "Offer component and technology candidates while keeping unknown parameters unconfirmed.", tool: "Hardware & BOM Advisor" },
+  { id: "implementation", title: "Generate engineering assets", description: "Generate protocol, firmware, Python, interface, test, and documentation assets.", tool: "Engineering Generators" },
+  { id: "validation", title: "Validate and deliver", description: "Run deterministic static checks and summarize boundaries that still require human or physical verification.", tool: "Deterministic Validators" },
+];
+const isLikelyEnglish = (value: string) =>
+  (value.match(/[A-Za-z]/g)?.length ?? 0) > (value.match(/[\u3400-\u9fff]/g)?.length ?? 0);
+const planningPhasesFor = (description: string) =>
+  isLikelyEnglish(description) ? planningPhasesEnglish : planningPhases;
 
 function fallbackPlanningQuestion(
   id: string,
@@ -344,7 +356,7 @@ function fallbackProjectPlan(input: { description: string; name?: string }): Pro
       confidence: 0.62,
       rationale: "根据用户的产品描述做出的初步意图推测，需要在创建 ProjectSpec 前确认。",
     },
-    phases: planningPhases,
+    phases: planningPhasesFor(input.description),
     ambiguities: [
       fallbackPlanningQuestion(
         "target-user",
@@ -477,7 +489,7 @@ function normalizeProjectPlan(
         ? value.intent.rationale.trim().slice(0, 500)
         : fallback.intent.rationale,
     },
-    phases: planningPhases,
+    phases: planningPhasesFor(input.description),
     ambiguities: ambiguities.length ? ambiguities : fallback.ambiguities,
     assumptions: Array.isArray(value.assumptions)
       ? value.assumptions.filter((item): item is string => typeof item === "string").slice(0, 6)
@@ -507,6 +519,7 @@ target_user,usage_environment,prototype_level,preferred_controller,communication
 每个 options 提供 2-4 个推测选择，包含 label,value,rationale,recommended，恰好一个 recommended=true。
 这些只是推测，不得表述为用户事实。不得编造具体器件参数、价格、库存、引脚、电压、电流或兼容性。
 不要主动推荐或猜测预算数字；预算只能来自用户明确输入。
+所有面向用户的文本必须跟随用户描述的主要语言；英文输入使用英文，中文输入使用中文。
 draft 使用 ProjectCreateInput 字段，只填产品层信息；未知字段写“待确认”或“由 Agent 推荐”。
 
 用户给出的名称：${input.name?.trim() || "未指定"}
@@ -895,7 +908,10 @@ function normalizeRequirementChange(
     : [];
   const mergedTools = [...inferred];
   for (const tool of suggestedTools) {
-    if (!mergedTools.some((item) => item.action === tool.action && item.target === tool.target)) {
+    if (!mergedTools.some((item) =>
+      item.action === tool.action
+      && (item.action === "confirm_spec" || item.target === tool.target)
+    )) {
       mergedTools.push(tool);
     }
   }
@@ -975,6 +991,69 @@ function applyChange(spec: ProjectSpec, change: RequirementChange, message: stri
   updated.project.status = "NEEDS_CONFIRMATION";
   updated.verification.requirement_status = "NEEDS_CONFIRMATION";
   return updated;
+}
+
+function specDisplayValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "待确认";
+  if (typeof value === "boolean") return value ? "需要" : "不需要";
+  if (Array.isArray(value)) return value.length ? value.join("、") : "待确认";
+  return String(value);
+}
+
+function isPendingSpecValue(value: unknown) {
+  const text = specDisplayValue(value);
+  return text === "待确认" || text === "尚未验证" || text === "需要查看数据手册";
+}
+
+function buildSpecDiffPreview(
+  spec: ProjectSpec,
+  change: RequirementChange,
+  message: string,
+  modules: string[],
+): SpecDiffPreview {
+  const updated = applyChange(spec, change, message);
+  const fields = [
+    { field: "project.product_goal", label: "产品目标", before: spec.project.product_goal.value, after: updated.project.product_goal.value },
+    { field: "user.target_user", label: "目标用户", before: spec.user.target_user.value, after: updated.user.target_user.value },
+    { field: "scenario.usage_environment", label: "使用环境", before: spec.scenario.usage_environment.value, after: updated.scenario.usage_environment.value },
+    { field: "constraints.budget_cny", label: "预算", before: spec.constraints.budget_cny.value, after: updated.constraints.budget_cny.value },
+    { field: "hardware.preferred_controller", label: "主控偏好", before: spec.hardware.preferred_controller.value, after: updated.hardware.preferred_controller.value },
+    { field: "software.data_collection_required", label: "数据采集", before: spec.software.data_collection_required.value, after: updated.software.data_collection_required.value },
+    { field: "software.machine_learning_required", label: "机器学习", before: spec.software.machine_learning_required.value, after: updated.software.machine_learning_required.value },
+    { field: "software.control_interface_required", label: "控制界面", before: spec.software.control_interface_required.value, after: updated.software.control_interface_required.value },
+  ];
+  const additions: SpecDiffPreview["additions"] = [];
+  const modifications: SpecDiffPreview["modifications"] = [];
+  const unchanged: SpecDiffPreview["unchanged"] = [];
+  for (const item of fields) {
+    if (specDisplayValue(item.before) !== specDisplayValue(item.after)) {
+      const entry = {
+        field: item.field,
+        label: item.label,
+        before: specDisplayValue(item.before),
+        after: specDisplayValue(item.after),
+      };
+      (isPendingSpecValue(item.before) ? additions : modifications).push(entry);
+    } else if (unchanged.length < 4) {
+      unchanged.push({ label: item.label, value: specDisplayValue(item.before) });
+    }
+  }
+  if ((change.add_open_questions || []).length) {
+    additions.push({
+      field: "open_questions",
+      label: "待确认问题",
+      before: "无新增",
+      after: (change.add_open_questions || []).join("；"),
+    });
+  }
+  return {
+    additions,
+    modifications,
+    unchanged,
+    invalidated_artifacts: [...new Set(modules.filter(
+      (module) => !["ProjectSpec", "需求文档"].includes(module),
+    ))],
+  };
 }
 
 type RequirementConfirmation = {
@@ -1102,8 +1181,11 @@ intent 包含 label,confidence,rationale。遇到模糊意图时 ambiguous=true�
 每项包含 label,value,rationale,recommended，恰好一个 recommended=true。
 suggested_tools 只能使用 confirm_spec,generate,validate,open_section 四种 action，包含 id,label,description,
 action,target,requires_confirmation。没有明确修改意图或用户明确说“不修改”时 should_update_spec=false。
-不要直接声称工具已经执行，只能提出下一步工具计划。`,
+不要直接声称工具已经执行，只能提出下一步工具计划。所有面向用户的字段应跟随用户消息的主要语言。`,
         },
+        ...(isLikelyEnglish(message)
+          ? [{ role: "system", content: "The user's primary language is English. Every user-facing JSON string must be written in English." }]
+          : []),
         {
           role: "user",
           content: `当前 ProjectSpec：${JSON.stringify(spec)}\n用户消息：${message}\n程序判断受影响模块：${modules.join("、")}`,
@@ -1599,6 +1681,12 @@ export async function handleApi(
       const version = await saveVersion(
         env, project, spec, `恢复自版本 v${sourceVersion}`, ["ProjectSpec", "全部派生资产"],
       );
+      await recordWorkflowConversation(env, projectId, {
+        user: `撤回本次确认，恢复到 ProjectSpec v${sourceVersion}`,
+        assistant: `已从 v${sourceVersion} 创建恢复版本 v${version}。历史记录仍保留，全部派生资产已标记为需要按当前版本重新核对。`,
+        intent: "撤回 ProjectSpec 确认",
+        affectedModules: ["ProjectSpec", "全部派生资产"],
+      });
       return jsonResponse({ version, reason: `恢复自版本 v${sourceVersion}` });
     }
 
@@ -1612,6 +1700,65 @@ export async function handleApi(
         id: row.id, role: row.role, content: row.content,
         metadata: parseJson<Json>(row.metadata, {}), created_at: row.created_at,
       })));
+    }
+    if (
+      parts[3] === "messages" && parts[4] && parts[5] === "confirm"
+      && parts.length === 6 && method === "POST"
+    ) {
+      const assistant = await one<{ content: string; metadata: string }>(
+        env,
+        "SELECT content, metadata FROM messages WHERE id = ? AND project_id = ? AND role = 'assistant'",
+        [parts[4], projectId],
+      );
+      if (!assistant) throw new ApiError(404, "待确认提案不存在");
+      const metadata = parseJson<{
+        affected_modules?: string[];
+        conversation?: {
+          proposal_pending?: boolean;
+          proposal_message?: string;
+          proposal_change?: RequirementChange;
+          spec_diff?: SpecDiffPreview;
+          base_spec_version?: number;
+        };
+        [key: string]: unknown;
+      }>(assistant.metadata, {});
+      const proposal = metadata.conversation?.proposal_change;
+      if (!metadata.conversation?.proposal_pending || !proposal?.should_update_spec) {
+        throw new ApiError(409, "该提案已经确认或不再有效");
+      }
+      if (
+        typeof metadata.conversation.base_spec_version === "number"
+        && metadata.conversation.base_spec_version !== project.current_spec_version
+      ) {
+        throw new ApiError(409, "ProjectSpec 已发生变化，请重新发送修改意图以生成新的差异预览");
+      }
+      const spec = await getSpec(env, owner, projectId);
+      const proposalMessage = metadata.conversation.proposal_message || assistant.content;
+      const modules = [...new Set(metadata.affected_modules || proposal.affected_modules || ["ProjectSpec"])];
+      const diff = metadata.conversation.spec_diff
+        ?? buildSpecDiffPreview(spec, proposal, proposalMessage, modules);
+      const updated = applyChange(spec, proposal, proposalMessage);
+      const version = await saveVersion(
+        env, project, updated, `确认对话提案：${proposalMessage.slice(0, 220)}`, modules,
+      );
+      metadata.conversation.proposal_pending = false;
+      await env.database.prepare(
+        "UPDATE messages SET metadata = ? WHERE id = ? AND project_id = ?",
+      ).bind(JSON.stringify({
+        ...metadata,
+        conversation: {
+          ...metadata.conversation,
+          proposal_pending: false,
+          confirmed_spec_version: version,
+        },
+      }), parts[4], projectId).run();
+      await recordWorkflowConversation(env, projectId, {
+        user: "确认执行上述 ProjectSpec 差异",
+        assistant: `已按预览内容创建 ProjectSpec v${version}，并标记受影响的下游工程资产。`,
+        intent: "确认 ProjectSpec 修改",
+        affectedModules: modules,
+      });
+      return jsonResponse({ version, affected_modules: modules, spec_diff: diff });
     }
     if (parts[3] === "messages" && parts.length === 4 && method === "POST") {
       const payload = await readBody<{ content: string; apply_change?: boolean }>(request);
@@ -1645,6 +1792,13 @@ export async function handleApi(
         next_question: analyzed.change.next_question,
         proposal_message: payload.content,
         proposal_pending: analyzed.change.should_update_spec && !shouldApply,
+        proposal_change: analyzed.change.should_update_spec && !shouldApply
+          ? analyzed.change
+          : undefined,
+        spec_diff: analyzed.change.should_update_spec && !shouldApply
+          ? buildSpecDiffPreview(spec, analyzed.change, payload.content, modules)
+          : undefined,
+        base_spec_version: project.current_spec_version,
       };
       await env.database.batch([
         env.database.prepare(

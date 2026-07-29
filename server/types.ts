@@ -240,6 +240,20 @@ export type RequirementChange = {
   next_question?: string;
 };
 
+export type SpecDiffEntry = {
+  field: string;
+  label: string;
+  before: string;
+  after: string;
+};
+
+export type SpecDiffPreview = {
+  additions: SpecDiffEntry[];
+  modifications: SpecDiffEntry[];
+  unchanged: Array<{ label: string; value: string }>;
+  invalidated_artifacts: string[];
+};
+
 export type ArtifactDraft = {
   path: string;
   content: string;
