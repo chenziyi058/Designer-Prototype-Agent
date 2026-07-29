@@ -2735,6 +2735,23 @@ textarea:focus-visible,
   animation-delay: calc(-0.06s * var(--orb-tempo));
 }
 
+.agent-orb em {
+  position: absolute;
+  inset: -17%;
+  z-index: -1;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow:
+    0 0 0 0.5px rgba(60, 69, 74, 0.16),
+    0 0 7px rgba(255, 255, 255, 0.96),
+    0 0 15px rgba(75, 86, 91, 0.12);
+  opacity: 0.9;
+  pointer-events: none;
+  will-change: transform, opacity, box-shadow;
+  animation: orb-white-halo calc(6.7s * var(--orb-tempo)) cubic-bezier(0.37, 0, 0.18, 1) infinite;
+}
+
 .agent-orb.small {
   width: 29px !important;
   height: 29px !important;
@@ -2950,6 +2967,49 @@ textarea:focus-visible,
   24.2%, 65.3%, 89.2% {
     opacity: 0.78;
     transform: scaleY(0.13);
+  }
+}
+
+@keyframes orb-white-halo {
+  0%, 100% {
+    opacity: 0.82;
+    transform: scale(0.985);
+    box-shadow:
+      0 0 0 0.5px rgba(60, 69, 74, 0.15),
+      0 0 6px rgba(255, 255, 255, 0.92),
+      0 0 13px rgba(75, 86, 91, 0.1);
+  }
+  16% {
+    opacity: 1;
+    transform: scale(1.035);
+    box-shadow:
+      0 0 0 0.5px rgba(60, 69, 74, 0.18),
+      0 0 9px rgba(255, 255, 255, 1),
+      0 0 18px rgba(75, 86, 91, 0.14);
+  }
+  31% {
+    opacity: 0.88;
+    transform: scale(1.005);
+  }
+  49% {
+    opacity: 0.74;
+    transform: scale(0.97);
+  }
+  66% {
+    opacity: 0.98;
+    transform: scale(1.045);
+    box-shadow:
+      0 0 0 0.5px rgba(60, 69, 74, 0.17),
+      0 0 10px rgba(255, 255, 255, 1),
+      0 0 20px rgba(75, 86, 91, 0.15);
+  }
+  79% {
+    opacity: 0.84;
+    transform: scale(1.012);
+  }
+  91% {
+    opacity: 0.77;
+    transform: scale(0.978);
   }
 }
 

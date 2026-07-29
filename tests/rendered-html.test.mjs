@@ -134,7 +134,9 @@ test("overview is conversation-first and no longer renders the duplicated dashbo
   assert.match(css, /@keyframes orb-light-flow/);
   assert.match(css, /@keyframes orb-gaze/);
   assert.match(css, /@keyframes orb-eye-blink/);
+  assert.match(css, /@keyframes orb-white-halo/);
   assert.match(css, /\.agent-orb b::before/);
+  assert.match(page, /<em \/>/);
   assert.doesNotMatch(css, /@keyframes orb-rotate/);
   assert.match(css, /\.workflow-state\.waiting/);
 });

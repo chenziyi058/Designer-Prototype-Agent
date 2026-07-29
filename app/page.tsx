@@ -1128,6 +1128,7 @@ function AgentOrb({
   return <span className={`agent-orb ${size} ${active ? "active" : ""}`} aria-hidden="true">
     <i />
     <b />
+    <em />
   </span>;
 }
 
